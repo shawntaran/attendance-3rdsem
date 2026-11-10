@@ -31,12 +31,12 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
         }
         const isToday = day.date === today;
         return (
-          <section key={day.date} className="overflow-hidden rounded-xl border border-line bg-white">
-            <h2 className="flex items-center gap-2 bg-ink px-3 py-2 text-white">
+          <section key={day.date} className="overflow-hidden rounded-xl border border-line bg-surface">
+            <h2 className="flex items-center gap-2 bg-raised px-3 py-2 text-white">
               <span className="font-display text-lg font-bold">{weekdayName(day.date)}</span>
               <span className="text-sm">{formatDayMonth(day.date)}</span>
               {isToday && (
-                <span className="ml-auto rounded-full bg-today px-2 py-0.5 text-[11px] font-bold text-ink">
+                <span className="ml-auto rounded-full bg-today px-2 py-0.5 text-[11px] font-bold text-[#14202b]">
                   Today
                 </span>
               )}

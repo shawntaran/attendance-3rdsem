@@ -10,8 +10,16 @@ describe("parseState", () => {
     expect(parseState(JSON.stringify(state))).toEqual(state);
   });
 
+  it("accepts a state saved before the theme setting existed", () => {
+    const state = defaultState();
+    state.marks["2026-11-12@1"] = "attended";
+    const { theme: _theme, ...oldSettings } = state.settings;
+    expect(parseState(JSON.stringify({ settings: oldSettings, marks: state.marks }))).toEqual(state);
+  });
+
   it.each([
     ["nothing stored", null],
+    ["unknown theme", JSON.stringify({ ...defaultState(), settings: { ...defaultState().settings, theme: "neon" } })],
     ["broken JSON", "{not json"],
     ["wrong shape", JSON.stringify({ settings: 1, marks: [] })],
     ["bad mark value", JSON.stringify({ ...defaultState(), marks: { "2026-11-12@1": "maybe" } })],

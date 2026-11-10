@@ -38,7 +38,7 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
 
   if (!isDesktop) {
     return (
-      <details className="group rounded-xl border border-line bg-white">
+      <details className="group rounded-xl border border-line bg-surface">
         <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 py-2 [&::-webkit-details-marker]:hidden">
           <h2 className="font-display text-base font-bold">{TITLE}</h2>
           <ChevronDownIcon size={20} className="transition-transform group-open:rotate-180" />
@@ -81,7 +81,7 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
   }
 
   return (
-    <section aria-labelledby="courses-title" className="rounded-xl border border-line bg-white p-5">
+    <section aria-labelledby="courses-title" className="rounded-xl border border-line bg-surface p-5">
       <h2 id="courses-title" className="font-display text-lg font-bold">
         {TITLE}
       </h2>

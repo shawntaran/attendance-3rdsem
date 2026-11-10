@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   COURSES,
   SCENARIO_LABEL,
+  THEME_LABEL,
   WINDOW_END,
   WINDOW_START,
   type CourseCode,
   type Scenario,
   type Settings,
+  type Theme,
 } from "@/lib/config";
 import { formatDate, isValidDate } from "@/lib/dates";
 import { CloseIcon } from "./icons";
@@ -24,7 +26,7 @@ interface Props {
 }
 
 const inputCls =
-  "min-h-11 w-full rounded-lg border-[1.5px] border-[#6b7885] bg-white px-2.5 py-2 text-sm tabular-nums text-ink";
+  "min-h-11 w-full rounded-lg border-[1.5px] border-field bg-surface px-2.5 py-2 text-sm tabular-nums text-ink";
 
 /** Whole-number input that only commits valid values and snaps back on blur. */
 function NumberField({
@@ -92,7 +94,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-50 flex justify-end bg-ink/50"
+      className="anim-fade fixed inset-0 z-50 flex justify-end bg-black/50"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -101,7 +103,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="anim-drawer flex h-full w-full max-w-[460px] flex-col bg-white shadow-2xl"
+        className="anim-drawer flex h-full w-full max-w-[460px] flex-col bg-surface shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-2">
           <h2 id="settings-title" className="font-display text-xl font-bold">
@@ -130,7 +132,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
                   <label
                     key={s}
                     className={`flex min-h-11 cursor-pointer items-center justify-center rounded-lg border-[1.5px] px-3 text-sm font-semibold has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-ink ${
-                      active ? "border-teal bg-teal text-white" : "border-line bg-white hover:border-teal"
+                      active ? "border-teal bg-teal text-white" : "border-line bg-surface hover:border-teal"
                     }`}
                   >
                     <input
@@ -141,6 +143,32 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
                       onChange={() => onChange({ ...settings, scenario: s })}
                     />
                     {SCENARIO_LABEL[s]}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <fieldset className="mt-5">
+            <legend className="text-sm font-bold">Theme</legend>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {(Object.keys(THEME_LABEL) as Theme[]).map((t) => {
+                const active = settings.theme === t;
+                return (
+                  <label
+                    key={t}
+                    className={`flex min-h-11 cursor-pointer items-center justify-center rounded-lg border-[1.5px] px-3 text-sm font-semibold has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-ink ${
+                      active ? "border-teal bg-teal text-white" : "border-line bg-surface hover:border-teal"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="theme"
+                      className="sr-only"
+                      checked={active}
+                      onChange={() => onChange({ ...settings, theme: t })}
+                    />
+                    {THEME_LABEL[t]}
                   </label>
                 );
               })}
@@ -269,7 +297,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
               type="button"
               onClick={addHoliday}
               disabled={!holidayOk}
-              className="min-h-11 shrink-0 rounded-lg bg-ink px-4 text-sm font-bold text-white disabled:bg-muted disabled:text-subtle"
+              className="min-h-11 shrink-0 rounded-lg bg-ink px-4 text-sm font-bold text-page disabled:bg-muted disabled:text-subtle"
             >
               Add
             </button>
@@ -283,7 +311,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
               onClick={() => {
                 if (window.confirm(`Remove all ${markCount} attended / skipped marks?`)) onResetMarks();
               }}
-              className="min-h-11 rounded-lg border-[1.5px] border-ink bg-white px-4 text-sm font-bold hover:bg-empty disabled:border-line disabled:text-subtle"
+              className="min-h-11 rounded-lg border-[1.5px] border-ink bg-surface px-4 text-sm font-bold hover:bg-empty disabled:border-line disabled:text-subtle"
             >
               Reset marks{markCount > 0 ? ` (${markCount})` : ""}
             </button>
@@ -292,7 +320,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
               onClick={() => {
                 if (window.confirm("Reset marks, baseline and every setting to the defaults?")) onResetAll();
               }}
-              className="min-h-11 rounded-lg border-[1.5px] border-must-border bg-white px-4 text-sm font-bold text-must-border hover:bg-[#fdecea]"
+              className="min-h-11 rounded-lg border-[1.5px] border-must-border bg-surface px-4 text-sm font-bold text-must-border hover:bg-warn-bg"
             >
               Reset everything
             </button>

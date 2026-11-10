@@ -35,7 +35,7 @@ export function WeekTabs({ selected, greenHoursByWeek, onSelect }: Props) {
             className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg border-[1.5px] px-2 py-1.5 text-sm font-semibold desk:flex-row desk:gap-2 desk:px-4 ${
               active
                 ? "border-teal bg-teal text-white"
-                : "border-line bg-white text-ink hover:border-teal"
+                : "border-line bg-surface text-ink hover:border-teal"
             }`}
           >
             <span className="font-display whitespace-nowrap">{week.label}</span>

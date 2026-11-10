@@ -198,7 +198,17 @@ export const BASELINES: Record<Scenario, Baseline> = {
 
 // ---- Settings --------------------------------------------------------------
 
+export type Theme = "system" | "light" | "dark";
+
+export const THEME_LABEL: Record<Theme, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
 export interface Settings {
+  /** "system" follows the device's light or dark setting. */
+  theme: Theme;
   scenario: Scenario;
   /** Target attendance in percent, e.g. 75. */
   targetPct: number;
@@ -215,6 +225,7 @@ export const DEFAULT_CUSHION_HOURS = 1;
 
 export function defaultSettings(): Settings {
   return {
+    theme: "system",
     scenario: "odsGranted",
     targetPct: DEFAULT_TARGET_PCT,
     cushionHours: DEFAULT_CUSHION_HOURS,

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,14 +36,24 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0B5E66",
+  colorScheme: "light dark",
   width: "device-width",
   initialScale: 1,
 };
 
+// Applies a saved light/dark choice before first paint, so the page does not
+// flash the system theme. Keep the key in sync with STORAGE_KEY in storage.ts.
+const themeScript = `try{var t=JSON.parse(localStorage.getItem("skip-planner:v1")).settings.theme;if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
-      <body className="antialiased">{children}</body>
+    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+      <body className="antialiased">
+        <Script id="theme" strategy="beforeInteractive">
+          {themeScript}
+        </Script>
+        {children}
+      </body>
     </html>
   );
 }

@@ -75,6 +75,14 @@ export function Planner() {
     if (ready) saveState(state);
   }, [ready, state]);
 
+  // "system" leaves the attribute off, so the CSS media query decides.
+  useEffect(() => {
+    if (!ready) return;
+    const root = document.documentElement;
+    if (state.settings.theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = state.settings.theme;
+  }, [ready, state.settings.theme]);
+
   const plan = useMemo(
     () => computePlan({ settings: state.settings, marks: state.marks, today }),
     [state, today],
@@ -183,7 +191,7 @@ export function Planner() {
             type="button"
             onClick={() => setSettingsOpen(true)}
             aria-haspopup="dialog"
-            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border-[1.5px] border-line bg-white px-3 text-sm font-semibold hover:border-teal"
+            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal"
           >
             <SettingsIcon size={18} />
             Settings

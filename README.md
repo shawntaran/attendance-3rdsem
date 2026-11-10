@@ -13,6 +13,7 @@ of the 11 courses at 75% attendance or more on 1 Dec 2026.
   and **ODs pending**.
 - No backend, no database, no environment variables. Everything is saved in your browser's
   `localStorage` under the key `skip-planner:v1`.
+- Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
 
 ## Run it

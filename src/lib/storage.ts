@@ -1,7 +1,14 @@
 // Everything the app remembers lives in one localStorage key. Anything that
 // fails validation on load is thrown away and the defaults are used instead.
 
-import { COURSE_CODES, defaultSettings, type Baseline, type Scenario, type Settings } from "./config";
+import {
+  COURSE_CODES,
+  defaultSettings,
+  type Baseline,
+  type Scenario,
+  type Settings,
+  type Theme,
+} from "./config";
 import { isValidDate } from "./dates";
 import type { Marks } from "./plan";
 
@@ -17,6 +24,7 @@ export function defaultState(): AppState {
 }
 
 const SCENARIOS: Scenario[] = ["odsGranted", "odsPending"];
+const THEMES: Theme[] = ["system", "light", "dark"];
 const SESSION_ID_RE = /^(\d{4}-\d{2}-\d{2})@[1-8]$/;
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -43,6 +51,9 @@ function parseBaseline(v: unknown): Baseline {
 function parseSettings(v: unknown): Settings {
   if (!isObject(v)) throw new Error("settings");
   const { scenario, targetPct, cushionHours, baselineAsOf, baselines, holidays } = v;
+  // Added after the first release, so states saved before it have no theme.
+  const theme = v.theme === undefined ? "system" : v.theme;
+  if (!THEMES.includes(theme as Theme)) throw new Error("theme");
   if (!SCENARIOS.includes(scenario as Scenario)) throw new Error("scenario");
   if (typeof targetPct !== "number" || !(targetPct >= 1 && targetPct <= 100)) throw new Error("targetPct");
   if (!Number.isInteger(cushionHours) || (cushionHours as number) < 0 || (cushionHours as number) > 50) {
@@ -52,6 +63,7 @@ function parseSettings(v: unknown): Settings {
   if (!isObject(baselines)) throw new Error("baselines");
   if (!Array.isArray(holidays) || !holidays.every(isValidDate)) throw new Error("holidays");
   return {
+    theme: theme as Theme,
     scenario: scenario as Scenario,
     targetPct,
     cushionHours: cushionHours as number,

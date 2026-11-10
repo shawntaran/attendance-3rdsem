@@ -12,6 +12,10 @@
   --color-subtle: #44525f;
   --color-line: #d5dce3;
   --color-today: #ffd166;
+  --color-surface: #ffffff;
+  --color-raised: #14202b;
+  --color-warn-bg: #fdecea;
+  --color-field: #6b7885;
 
   --color-ok-bg: #d2efd8;
   --color-ok-border: #3f9f63;
@@ -30,6 +34,70 @@
   --font-display: var(--font-space-grotesk), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
   --breakpoint-desk: 900px;
+}
+
+/* Dark theme: follows the system unless Settings forces light or dark
+   (data-theme on <html>). Only the tokens change; components stay the same. */
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-page: #0f161d;
+    --color-ink: #e6ecf1;
+    --color-surface: #18222c;
+    --color-raised: #2b3a48;
+    --color-muted: #1f2a34;
+    --color-empty: #1a242d;
+    --color-band: #2a3540;
+    --color-mutedday: #33404c;
+    --color-subtle: #a3b1bd;
+    --color-line: #2e3a45;
+    --color-warn-bg: #3a1613;
+    --color-field: #7d8b98;
+
+    --color-ok-bg: #12351f;
+    --color-ok-border: #46ad6c;
+    --color-ok-ink: #bfecc9;
+    --color-must-bg: #4a1a15;
+    --color-must-border: #f0786f;
+    --color-must-ink: #ffd0ca;
+    --color-done-bg: #152c45;
+    --color-done-border: #5b93cf;
+    --color-done-ink: #cfe3f7;
+    --color-skipped-bg: #3d2f08;
+    --color-skipped-border: #d39a12;
+    --color-skipped-ink: #ffe3a1;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-page: #0f161d;
+  --color-ink: #e6ecf1;
+  --color-surface: #18222c;
+  --color-raised: #2b3a48;
+  --color-muted: #1f2a34;
+  --color-empty: #1a242d;
+  --color-band: #2a3540;
+  --color-mutedday: #33404c;
+  --color-subtle: #a3b1bd;
+  --color-line: #2e3a45;
+  --color-warn-bg: #3a1613;
+  --color-field: #7d8b98;
+
+  --color-ok-bg: #12351f;
+  --color-ok-border: #46ad6c;
+  --color-ok-ink: #bfecc9;
+  --color-must-bg: #4a1a15;
+  --color-must-border: #f0786f;
+  --color-must-ink: #ffd0ca;
+  --color-done-bg: #152c45;
+  --color-done-border: #5b93cf;
+  --color-done-ink: #cfe3f7;
+  --color-skipped-bg: #3d2f08;
+  --color-skipped-border: #d39a12;
+  --color-skipped-ink: #ffe3a1;
 }
 
 html {
@@ -54,7 +122,7 @@ button:disabled {
 :focus-visible {
   outline: 3px solid var(--color-ink);
   outline-offset: 2px;
-  box-shadow: 0 0 0 5px #fff;
+  box-shadow: 0 0 0 5px var(--color-page);
 }
 
 /* ---- Class cell states. Colour is never the only cue: every state also has
@@ -94,20 +162,20 @@ button:disabled {
 /* Brief outline pulse on cells whose status just changed. */
 @keyframes cell-pulse {
   0% {
-    outline-color: rgb(20 32 43 / 0.95);
+    outline-color: color-mix(in srgb, var(--color-ink) 95%, transparent);
     outline-offset: 0px;
   }
   60% {
-    outline-color: rgb(20 32 43 / 0.6);
+    outline-color: color-mix(in srgb, var(--color-ink) 60%, transparent);
     outline-offset: 5px;
   }
   100% {
-    outline-color: rgb(20 32 43 / 0);
+    outline-color: transparent;
     outline-offset: 8px;
   }
 }
 .cell-pulse {
-  outline: 3px solid rgb(20 32 43 / 0);
+  outline: 3px solid transparent;
   animation: cell-pulse 700ms ease-out 2;
 }
 

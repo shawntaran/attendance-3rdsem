@@ -75,14 +75,14 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
           <div key={day.date} className="contents">
             <div
               className={`flex flex-col justify-center rounded-lg px-3 py-2 ${
-                muted ? "bg-mutedday text-ink" : "bg-ink text-white"
+                muted ? "bg-mutedday text-ink" : "bg-raised text-white"
               }`}
               style={{ gridColumn: 1, gridRow: row }}
             >
               <div className="font-display text-xl leading-tight font-bold">{weekdayName(day.date)}</div>
               <div className="text-xs">{formatDayMonth(day.date)}</div>
               {isToday && (
-                <span className="mt-1 w-fit rounded-full bg-today px-2 py-px text-[10px] font-bold text-ink">
+                <span className="mt-1 w-fit rounded-full bg-today px-2 py-px text-[10px] font-bold text-[#14202b]">
                   Today
                 </span>
               )}

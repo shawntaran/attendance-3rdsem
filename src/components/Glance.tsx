@@ -11,7 +11,7 @@ interface Props {
 export function Glance({ greenHoursByWeek, total, selected }: Props) {
   const max = Math.max(1, ...greenHoursByWeek);
   return (
-    <section aria-labelledby="glance-title" className="rounded-xl border border-line bg-white p-3 desk:p-4">
+    <section aria-labelledby="glance-title" className="rounded-xl border border-line bg-surface p-3 desk:p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
         <h2 id="glance-title" className="font-display text-base font-bold">
           Plan at a glance

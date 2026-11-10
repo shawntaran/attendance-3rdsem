@@ -22,9 +22,9 @@ const POPOVER_WIDTH = 348;
 const MARGIN = 10;
 
 const primaryBtn =
-  "min-h-11 w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-dark";
+  "min-h-11 w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-page hover:opacity-90";
 const secondaryBtn =
-  "min-h-11 w-full rounded-lg border-[1.5px] border-ink bg-white px-4 py-2.5 text-sm font-bold text-ink hover:bg-empty";
+  "min-h-11 w-full rounded-lg border-[1.5px] border-ink bg-surface px-4 py-2.5 text-sm font-bold text-ink hover:bg-empty";
 
 export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -115,7 +115,7 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
             {warning && (
               <p
                 id="skip-warning"
-                className="flex gap-2 rounded-lg border-[1.5px] border-must-border bg-[#fdecea] px-3 py-2 text-xs leading-relaxed font-medium text-must-ink"
+                className="flex gap-2 rounded-lg border-[1.5px] border-must-border bg-warn-bg px-3 py-2 text-xs leading-relaxed font-medium text-must-ink"
               >
                 <AlertCircleIcon size={16} className="mt-0.5 shrink-0" />
                 <span>{warning.text}</span>
@@ -151,7 +151,7 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
           aria-modal="true"
           aria-labelledby="session-title"
           tabIndex={-1}
-          className="anim-fade fixed rounded-xl border border-line bg-white p-4 shadow-[0_12px_40px_rgb(20_32_43/0.28)]"
+          className="anim-fade fixed rounded-xl border border-line bg-surface p-4 shadow-[0_12px_40px_rgb(20_32_43/0.28)]"
           style={{
             width: POPOVER_WIDTH,
             top: pos?.top ?? 0,
@@ -167,7 +167,7 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-40 flex items-end bg-ink/50"
+      className="anim-fade fixed inset-0 z-40 flex items-end bg-black/50"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -176,7 +176,7 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
         aria-modal="true"
         aria-labelledby="session-title"
         tabIndex={-1}
-        className="anim-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-2xl bg-white px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="anim-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-2xl bg-surface px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
         {body}
       </div>

@@ -26,7 +26,7 @@ export function ColorKey({ settings }: { settings: Settings }) {
     ["skipped", "You missed it. Its hours came out of that course's allowance."],
   ];
   return (
-    <section aria-labelledby="key-title" className="rounded-xl border border-line bg-white p-4 desk:p-5">
+    <section aria-labelledby="key-title" className="rounded-xl border border-line bg-surface p-4 desk:p-5">
       <h2 id="key-title" className="font-display text-base font-bold desk:text-lg">
         Color key
       </h2>
