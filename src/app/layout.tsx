@@ -42,8 +42,9 @@ export const viewport: Viewport = {
 };
 
 // Applies a saved light/dark choice before first paint, so the page does not
-// flash the system theme. Keep the key in sync with STORAGE_KEY in storage.ts.
-const themeScript = `try{var t=JSON.parse(localStorage.getItem("skip-planner:v1")).settings.theme;if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
+// flash the system theme. Keep the keys in sync with storage.ts (v2, then the
+// v1 key for a state that has not been migrated yet).
+const themeScript = `try{var t=JSON.parse(localStorage.getItem("skip-planner:v2")||localStorage.getItem("skip-planner:v1")).settings.theme;if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
