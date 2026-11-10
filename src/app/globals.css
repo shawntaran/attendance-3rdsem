@@ -1,0 +1,171 @@
+@import "tailwindcss";
+
+@theme {
+  --color-page: #f5f7f9;
+  --color-ink: #14202b;
+  --color-teal: #0b5e66;
+  --color-teal-dark: #084a51;
+  --color-muted: #e1e6eb;
+  --color-empty: #eaeef2;
+  --color-band: #c9d1d9;
+  --color-mutedday: #b7c2cc;
+  --color-subtle: #44525f;
+  --color-line: #d5dce3;
+  --color-today: #ffd166;
+
+  --color-ok-bg: #d2efd8;
+  --color-ok-border: #3f9f63;
+  --color-ok-ink: #0c4423;
+  --color-must-bg: #f1a59c;
+  --color-must-border: #b3261e;
+  --color-must-ink: #5a0f08;
+  --color-done-bg: #d6e6f5;
+  --color-done-border: #3b6fa8;
+  --color-done-ink: #0f2f55;
+  --color-skipped-bg: #ffe8b3;
+  --color-skipped-border: #c28a00;
+  --color-skipped-ink: #4a3500;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --breakpoint-desk: 900px;
+}
+
+html {
+  background: var(--color-page);
+  color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #fff;
+}
+
+/* ---- Class cell states. Colour is never the only cue: every state also has
+   an icon and a text label. ---- */
+.state-skip-ok {
+  background: var(--color-ok-bg);
+  border-color: var(--color-ok-border);
+  color: var(--color-ok-ink);
+}
+.state-attend {
+  background: var(--color-must-bg);
+  border-color: var(--color-must-border);
+  color: var(--color-must-ink);
+}
+.state-attended,
+.state-assumed {
+  background: var(--color-done-bg);
+  border-color: var(--color-done-border);
+  color: var(--color-done-ink);
+}
+.state-skipped {
+  background: var(--color-skipped-bg);
+  border-color: var(--color-skipped-border);
+  color: var(--color-skipped-ink);
+}
+
+.cell-btn {
+  transition: transform 120ms ease, filter 120ms ease;
+}
+.cell-btn:hover {
+  filter: brightness(0.97);
+}
+.cell-btn:active {
+  transform: scale(0.985);
+}
+
+/* Brief outline pulse on cells whose status just changed. */
+@keyframes cell-pulse {
+  0% {
+    outline-color: rgb(20 32 43 / 0.95);
+    outline-offset: 0px;
+  }
+  60% {
+    outline-color: rgb(20 32 43 / 0.6);
+    outline-offset: 5px;
+  }
+  100% {
+    outline-color: rgb(20 32 43 / 0);
+    outline-offset: 8px;
+  }
+}
+.cell-pulse {
+  outline: 3px solid rgb(20 32 43 / 0);
+  animation: cell-pulse 700ms ease-out 2;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.anim-sheet {
+  animation: sheet-up 180ms ease-out;
+}
+.anim-drawer {
+  animation: drawer-in 180ms ease-out;
+}
+.anim-fade {
+  animation: fade-in 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-btn,
+  .anim-sheet,
+  .anim-drawer,
+  .anim-fade {
+    transition: none;
+    animation: none;
+  }
+  /* No motion: hold a steady outline until the class is removed. */
+  .cell-pulse {
+    animation: none;
+    outline: 3px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
