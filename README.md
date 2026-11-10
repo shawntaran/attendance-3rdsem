@@ -9,10 +9,10 @@ of the 11 courses at 75% attendance or more on 1 Dec 2026.
   toast tells you what moved, with an Undo.
 - A live table shows, per course: attendance now, skippable hours left, skips used, and the
   final % if you skip every green class.
-- Two scenarios, because some OD (on-duty) requests are still pending: **ODs granted** (default)
-  and **ODs pending**.
+- A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
+  combination and see the skip budget change at once.
 - No backend, no database, no environment variables. Everything is saved in your browser's
-  `localStorage` under the key `skip-planner:v1`.
+  `localStorage` under the key `skip-planner:v2`.
 - Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
 
@@ -31,7 +31,7 @@ To test another day, add `?today=YYYY-MM-DD` to the URL, for example
 ## The rules
 
 The engine is in [`src/lib/plan.ts`](src/lib/plan.ts): pure functions, no React. The fixed data
-(window, periods, timetable, courses, baseline) is in [`src/lib/config.ts`](src/lib/config.ts).
+(window, periods, timetable, courses, portal baseline, ODs) is in [`src/lib/config.ts`](src/lib/config.ts).
 
 `computePlan({ settings, marks, today })` works on each course independently. Marks are
 `Record<sessionId, 'attended' | 'skipped'>`, and a session id is `${date}@${startPeriod}`.
@@ -40,7 +40,8 @@ Labs and aptitude span 2 periods and count as 2 hours.
 1. **Sessions.** Take every timetable session of the course in the window (2026-11-11 to
    2026-12-01, weekdays), remove holidays, remove dates on or before `baselineAsOf` (those are
    already inside the baseline), and sort by date and period.
-2. **Walk them.** Start with `P` = baseline present hours and `H` = baseline held hours. For each
+2. **Walk them.** Start with `P` = baseline present hours and `H` = baseline held hours (see
+   [On-duty leaves](#on-duty-leaves-od) for how `P` is built from the portal figure). For each
    session the effective status is its mark; with no mark it is "attended (assumed)" if the date
    is before today, otherwise undecided.
    - attended: `P += span`, `H += span`
@@ -73,30 +74,72 @@ What follows from that:
   be more than the hours that are left.
 
 `diffPlans(before, after)` compares two plans and reports moved skips per course (for example
-"Comp Org & Arch: skip moved from Tue 1 Dec to Wed 11 Nov"). The toasts use it.
+"Comp Org & Arch: skip moved from Tue 1 Dec to Wed 11 Nov"). `diffBudgets(before, after)` lists
+the courses whose `budgetHours` changed. The toasts use both.
 
 Dates are plain `YYYY-MM-DD` strings throughout. The code never calls `new Date("YYYY-MM-DD")`,
 which would be read as UTC and can land on the wrong day.
 
-## Updating the baseline after a new attendance export
+## On-duty leaves (OD)
 
-The baseline is your present and held hours per course on a given date (DL counted as present,
-SUS excluded). Everything after that date is tracked by the app.
+The app keeps two things apart:
+
+- **Portal baseline.** Present and held hours per course exactly as the Linways portal shows
+  them on `baselineAsOf` (DL counted as present, SUS excluded). An OD the portal has not approved
+  yet is still an absence in these numbers. Defaults: `PORTAL_BASELINE` in
+  [`src/lib/config.ts`](src/lib/config.ts), as of 2026-11-10.
+- **ODs.** The 10 on-duty leaves in `ODS` (39 hours in total). Each lists, per course, the absent
+  hours in the baseline that it would turn into present hours.
+
+Each OD has two flags, saved as `odState[odId] = { on, inPortal }`:
+
+| Flag | Meaning |
+| --- | --- |
+| `on` | Count this OD's hours as present. Default: on for all ten. |
+| `inPortal` | "Already shows DL on the portal": the hours are already inside the baseline, so the OD adds nothing and its switch is disabled. This is what stops double counting. Default: off. |
+
+The baseline the rules start from is then:
+
+```
+P(course) = portal present(course) + sum of od.hours[course] for every OD that is on and not inPortal
+H(course) = portal held(course)        (unchanged: those hours are already held, as absences)
+```
+
+Everything after that (marks, past days, budget formula, latest-first allocation) is the same as
+above. With all ten on you get the old "ODs granted" numbers, with none the old "ODs pending"
+numbers.
+
+In the app: the **ODs 10/10** button in the header (or **Settings**) opens the list. Each row has
+the date, the reason, the hours per course, a switch, and the "Already shows DL on the portal"
+box. "Count all" and "Count none" flip every switch. Each change shows a toast such as
+"Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0" with an Undo, and the allowance table
+shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in it.
+
+### Saved state and the v1 migration
+
+State is saved under `skip-planner:v2`. A browser that only has the old `skip-planner:v1` state is
+migrated on first load: marks, target, cushion, holidays and theme are kept; the old scenario
+becomes all ODs on ("ODs granted") or all off ("ODs pending"); the baseline is reset to the portal
+defaults; then the v1 key is removed. Anything that fails validation falls back to the defaults.
+
+## Updating the baseline after a new attendance export
 
 **In the app (quickest, this device only):**
 
-1. Open **Settings**.
-2. Pick the scenario you are updating (ODs granted or ODs pending). Each has its own table.
-3. Set **Baseline as of** to the last date your export covers.
-4. Type the new **Present** and **Held** hours for each course.
+1. Open **Settings** and scroll to **Portal attendance (ODs not included)**.
+2. Set **Baseline as of** to the last date your export covers.
+3. Type the **Present** and **Held** hours for each course exactly as the portal shows them.
+4. For every OD the portal now shows as DL, tick **Already shows DL on the portal**. Its hours
+   are in the numbers you just typed, so it must not be added again.
 5. Classes on or before the new date are now inside the baseline, so the app ignores any marks
    on them. You do not need to clear them.
 
 **In the code (the new defaults for every device):**
 
-1. Edit `BASELINES` and `BASELINE_AS_OF` in [`src/lib/config.ts`](src/lib/config.ts).
+1. Edit `PORTAL_BASELINE` and `BASELINE_AS_OF` in [`src/lib/config.ts`](src/lib/config.ts). Remove
+   an OD from `ODS` once the portal counts it for good, or add new ones.
 2. `npm test` will now fail on the fixtures in `src/lib/plan.test.ts`, because they are written
-   for the 10 Nov baseline. Update or remove those expectations.
+   for the 10 Nov baseline and these ten ODs. Update or remove those expectations.
 3. Commit and push. Vercel redeploys on its own.
 4. A browser that already saved its own settings keeps them. Use **Settings > Reset everything**
    on that device to pick up the new defaults.
@@ -157,11 +200,11 @@ Your marks live in that browser on that device. They do not sync between devices
 ## Project layout
 
 ```
-src/lib/config.ts     window, periods, timetable, courses, baselines, default settings
-src/lib/plan.ts       rules engine: computePlan, diffPlans
+src/lib/config.ts     window, periods, timetable, courses, portal baseline, ODs, default settings
+src/lib/plan.ts       rules engine: computePlan, diffPlans, diffBudgets
 src/lib/plan.test.ts  engine tests, including the fixture numbers
 src/lib/dates.ts      YYYY-MM-DD helpers (no timezone traps)
-src/lib/storage.ts    localStorage load, validate, save
+src/lib/storage.ts    localStorage load, validate, save, v1 to v2 migration
 src/lib/view.ts       labels and text shared by the views
 src/components/       Planner, DesktopGrid, MobileDays, SessionDialog, SettingsDrawer, ...
 src/app/              layout (fonts, metadata), page, manifest
