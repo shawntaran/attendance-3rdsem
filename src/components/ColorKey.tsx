@@ -1,7 +1,8 @@
-import type { Settings } from "@/lib/config";
+import { ODS, type Settings } from "@/lib/config";
 import { formatDayMonth } from "@/lib/dates";
 import type { SessionStatus } from "@/lib/plan";
 import { END_LABEL, STATUS_LABEL, fmtHours } from "@/lib/view";
+import { odSummary } from "./OdSection";
 import { StatusIcon } from "./icons";
 
 function Swatch({ status }: { status: SessionStatus }) {
@@ -17,6 +18,7 @@ function Swatch({ status }: { status: SessionStatus }) {
 
 export function ColorKey({ settings }: { settings: Settings }) {
   const t = settings.targetPct;
+  const od = odSummary(settings.odState);
   const cushion =
     settings.cushionHours > 0 ? `, with ${fmtHours(settings.cushionHours).replace("hrs", "hours").replace("hr", "hour")} to spare` : "";
   const rows: [SessionStatus, string][] = [
@@ -43,10 +45,8 @@ export function ColorKey({ settings }: { settings: Settings }) {
         </li>
       </ul>
       <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-subtle">
-        Based on attendance through {formatDayMonth(settings.baselineAsOf)},{" "}
-        {settings.scenario === "odsGranted"
-          ? "with your OD hours counted as present."
-          : "with pending OD hours not counted yet."}{" "}
+        Based on portal attendance through {formatDayMonth(settings.baselineAsOf)}, plus {od.counted} of{" "}
+        {ODS.length} ODs counted as present.{" "}
         Each course&rsquo;s green slots add up to its limit, so skipping any extra class breaks it. Green
         slots are placed as late as possible, so skips pile up in the final weeks.
       </p>

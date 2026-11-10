@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COURSE_NAME, SCENARIO_LABEL, SECTION, WEEKS, type Settings } from "@/lib/config";
+import { COURSE_NAME, ODS, SECTION, WEEKS, type OdState, type Settings } from "@/lib/config";
 import { formatDate, isValidDate, localToday } from "@/lib/dates";
-import { computePlan, diffPlans, type Mark, type Marks, type PlanDiff, type PlanSession } from "@/lib/plan";
+import {
+  computePlan,
+  diffBudgets,
+  diffPlans,
+  type BudgetChange,
+  type Mark,
+  type Marks,
+  type PlanDiff,
+  type PlanSession,
+} from "@/lib/plan";
 import { defaultState, loadState, saveState, type AppState } from "@/lib/storage";
 import { END_LABEL, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
 import { ColorKey } from "./ColorKey";
@@ -11,6 +20,7 @@ import { CourseTable } from "./CourseTable";
 import { DesktopGrid } from "./DesktopGrid";
 import { Glance } from "./Glance";
 import { MobileDays } from "./MobileDays";
+import { odSummary } from "./OdSection";
 import { SessionDialog } from "./SessionDialog";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { Toast, type ToastData } from "./Toast";
@@ -40,6 +50,18 @@ function toastMessage(lead: string, diff: PlanDiff, fallback: string): string {
   return `${lead} ${fallback}`;
 }
 
+const MAX_BUDGETS_IN_TOAST = 4;
+
+/** "Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0." */
+function budgetMessage(changes: BudgetChange[]): string {
+  if (changes.length === 0) return "No skip budgets change.";
+  const shown = changes
+    .slice(0, MAX_BUDGETS_IN_TOAST)
+    .map((c, i) => `${c.courseName}${i === 0 ? " skip budget" : ""} ${c.before} to ${c.after}`);
+  const more = changes.length - shown.length;
+  return `${shown.join(", ")}${more > 0 ? `, and ${more} more` : ""}.`;
+}
+
 export function Planner() {
   const [ready, setReady] = useState(false);
   const [state, setState] = useState<AppState>(defaultState);
@@ -47,13 +69,14 @@ export function Planner() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [weekIndex, setWeekIndex] = useState(0);
   const [open, setOpen] = useState<{ id: string; anchor: HTMLElement | null } | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Which part of the settings drawer to open at, or null when it is closed.
+  const [settingsOpen, setSettingsOpen] = useState<"top" | "ods" | null>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [pulse, setPulse] = useState<{ key: number; ids: Set<string> }>({ key: 0, ids: new Set() });
 
-  const undoMarks = useRef<Marks | null>(null);
+  const undoState = useRef<AppState | null>(null);
   const counter = useRef(0);
-  const settingsButton = useRef<HTMLButtonElement>(null);
+  const settingsOpener = useRef<HTMLElement | null>(null);
 
   // Everything that depends on the device (storage, date, width) is read after
   // mount, so the server-rendered HTML never disagrees with the client.
@@ -107,15 +130,26 @@ export function Planner() {
     });
   }, []);
 
-  /** Swap in new marks, then pulse what changed and announce it. */
-  function commitMarks(nextMarks: Marks, lead: string, fallback: string, canUndo: boolean) {
+  /** Swap in a new state, pulse the cells that changed, and announce it. */
+  function commit(next: AppState, message: string, changedIds: string[], canUndo: boolean) {
+    undoState.current = canUndo ? state : null;
+    counter.current += 1;
+    setState(next);
+    setPulse({ key: counter.current, ids: new Set(changedIds) });
+    setToast({ key: counter.current, message, canUndo });
+  }
+
+  function commitMarks(nextMarks: Marks, lead: string, fallback: string) {
     const after = computePlan({ settings: state.settings, marks: nextMarks, today });
     const diff = diffPlans(plan, after);
-    undoMarks.current = canUndo ? state.marks : null;
-    counter.current += 1;
-    setState({ ...state, marks: nextMarks });
-    setPulse({ key: counter.current, ids: new Set(diff.changedIds) });
-    setToast({ key: counter.current, message: toastMessage(lead, diff, fallback), canUndo });
+    commit({ ...state, marks: nextMarks }, toastMessage(lead, diff, fallback), diff.changedIds, true);
+  }
+
+  /** An OD switch or its "already DL" box changed: recompute and report budgets. */
+  function handleOdChange(odState: OdState) {
+    const next: AppState = { ...state, settings: { ...state.settings, odState } };
+    const after = computePlan({ settings: next.settings, marks: next.marks, today });
+    commit(next, budgetMessage(diffBudgets(plan, after)), diffPlans(plan, after).changedIds, true);
   }
 
   function handleMark(mark: Mark | null) {
@@ -132,19 +166,21 @@ export function Planner() {
 
     const name = COURSE_NAME[session.course];
     if (mark === "attended") {
-      commitMarks(nextMarks, "Marked attended.", "Nothing else changes.", true);
+      commitMarks(nextMarks, "Marked attended.", "Nothing else changes.");
     } else if (mark === "skipped") {
       const after = computePlan({ settings: state.settings, marks: nextMarks, today });
       const left = after.byCourse[session.course].skippableHours;
-      commitMarks(nextMarks, "Marked skipped.", `${name} has ${fmtHours(left)} of skips left.`, true);
+      commitMarks(nextMarks, "Marked skipped.", `${name} has ${fmtHours(left)} of skips left.`);
     } else {
-      commitMarks(nextMarks, "Mark removed.", "Nothing else changes.", true);
+      commitMarks(nextMarks, "Mark removed.", "Nothing else changes.");
     }
   }
 
   function handleUndo() {
-    if (!undoMarks.current) return;
-    commitMarks(undoMarks.current, "Undone.", "", false);
+    const previous = undoState.current;
+    if (!previous) return;
+    const after = computePlan({ settings: previous.settings, marks: previous.marks, today });
+    commit(previous, "Undone.", diffPlans(plan, after).changedIds, false);
   }
 
   function closeDialog() {
@@ -154,13 +190,18 @@ export function Planner() {
     focusCell(id);
   }
 
+  function openSettings(at: "top" | "ods", opener: HTMLElement) {
+    settingsOpener.current = opener;
+    setSettingsOpen(at);
+  }
+
   function closeSettings() {
-    setSettingsOpen(false);
-    requestAnimationFrame(() => settingsButton.current?.focus());
+    setSettingsOpen(null);
+    requestAnimationFrame(() => settingsOpener.current?.focus());
   }
 
   function changeSettings(settings: Settings) {
-    undoMarks.current = null;
+    undoState.current = null;
     setToast(null);
     setState({ ...state, settings });
   }
@@ -168,6 +209,7 @@ export function Planner() {
   const week = WEEKS[weekIndex];
   const days = useMemo(() => weekDays(week, state.settings, plan), [week, state.settings, plan]);
   const openSession: PlanSession | undefined = open ? plan.byId[open.id] : undefined;
+  const od = odSummary(state.settings.odState);
   const onOpen = (session: PlanSession, trigger: HTMLElement) => setOpen({ id: session.id, anchor: trigger });
 
   return (
@@ -177,30 +219,39 @@ export function Planner() {
           <h1 className="font-display text-3xl leading-none font-bold desk:text-5xl">{week.label}</h1>
           <p className="mt-1.5 text-sm text-subtle desk:text-base">{weekRangeLabel(week)}</p>
         </div>
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2 desk:gap-3">
           <div className="hidden text-right text-sm text-subtle desk:block">
-            <p>
-              {SECTION} skip planner · {SCENARIO_LABEL[state.settings.scenario]}
-            </p>
+            <p>{SECTION} skip planner</p>
             <p>
               Keep every course at {state.settings.targetPct}% or more till {END_LABEL}
             </p>
           </div>
           <button
-            ref={settingsButton}
             type="button"
-            onClick={() => setSettingsOpen(true)}
+            onClick={(e) => openSettings("ods", e.currentTarget)}
             aria-haspopup="dialog"
-            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal"
+            aria-label={`On-duty leaves: ${od.counted} of ${ODS.length} counted as present. Open OD settings.`}
+            className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold whitespace-nowrap hover:border-teal"
+          >
+            ODs
+            <span className="rounded-full bg-ok-bg px-1.5 py-px text-xs font-bold text-ok-ink tabular-nums">
+              {od.counted}/{ODS.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => openSettings("top", e.currentTarget)}
+            aria-haspopup="dialog"
+            aria-label="Settings"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal"
           >
             <SettingsIcon size={18} />
-            Settings
+            <span className="hidden desk:inline">Settings</span>
           </button>
         </div>
       </header>
       <p className="mt-1 text-xs text-subtle desk:hidden">
-        {SECTION} · {SCENARIO_LABEL[state.settings.scenario]} · keep every course at{" "}
-        {state.settings.targetPct}% till {END_LABEL}
+        {SECTION} · keep every course at {state.settings.targetPct}% till {END_LABEL}
       </p>
 
       <div className="sticky top-0 z-20 -mx-3 mt-3 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:p-0">
@@ -254,14 +305,16 @@ export function Planner() {
         <SettingsDrawer
           settings={state.settings}
           markCount={Object.keys(state.marks).length}
+          focusOds={settingsOpen === "ods"}
           onChange={changeSettings}
+          onOdChange={handleOdChange}
           onResetMarks={() => {
-            undoMarks.current = null;
+            undoState.current = null;
             setToast(null);
             setState({ ...state, marks: {} });
           }}
           onResetAll={() => {
-            undoMarks.current = null;
+            undoState.current = null;
             setToast(null);
             setState(defaultState());
           }}

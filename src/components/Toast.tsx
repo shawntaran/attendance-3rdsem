@@ -15,7 +15,7 @@ interface Props {
 export function Toast({ toast, onUndo, onDismiss }: Props) {
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       role="status"
       aria-live="polite"
     >

@@ -16,6 +16,16 @@ function Dot({ ok }: { ok: boolean }) {
   );
 }
 
+/** "includes +4 OD hrs", shown under Now % when OD hours are counted in it. */
+function OdCaption({ course }: { course: CoursePlan }) {
+  if (course.odHours <= 0) return null;
+  return (
+    <span className="block text-[11px] leading-tight font-normal text-subtle">
+      includes +{fmtHours(course.odHours).replace(" ", " OD ")}
+    </span>
+  );
+}
+
 function FinalPct({ course, target }: { course: CoursePlan; target: number }) {
   const below = course.finalPctIfSkipGreens < target - 1e-9;
   return (
@@ -54,7 +64,10 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
               <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <div>
                   <dt className="text-subtle">Now</dt>
-                  <dd className="text-sm font-semibold tabular-nums">{fmtPct(c.currentPct)}</dd>
+                  <dd className="text-sm font-semibold tabular-nums">
+                    {fmtPct(c.currentPct)}
+                    <OdCaption course={c} />
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-subtle">Skippable left</dt>
@@ -106,7 +119,10 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
                   </span>
                 </span>
               </th>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtPct(c.currentPct)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {fmtPct(c.currentPct)}
+                <OdCaption course={c} />
+              </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 <strong>{c.skippableHours}</strong> of {fmtHours(c.remainingHours)}
               </td>

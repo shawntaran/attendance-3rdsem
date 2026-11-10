@@ -3,23 +3,27 @@
 import { useEffect, useRef, useState } from "react";
 import {
   COURSES,
-  SCENARIO_LABEL,
   THEME_LABEL,
   WINDOW_END,
   WINDOW_START,
   type CourseCode,
-  type Scenario,
+  type OdState,
   type Settings,
   type Theme,
 } from "@/lib/config";
 import { formatDate, isValidDate } from "@/lib/dates";
+import { OdSection } from "./OdSection";
 import { CloseIcon } from "./icons";
 import { useModal } from "./useModal";
 
 interface Props {
   settings: Settings;
   markCount: number;
+  /** Open with focus on the OD section. */
+  focusOds: boolean;
   onChange: (settings: Settings) => void;
+  /** OD switches go through here so the planner can show a budget toast. */
+  onOdChange: (odState: OdState) => void;
   onResetMarks: () => void;
   onResetAll: () => void;
   onClose: () => void;
@@ -64,20 +68,26 @@ function NumberField({
   );
 }
 
-export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, onResetAll, onClose }: Props) {
+export function SettingsDrawer({
+  settings,
+  markCount,
+  focusOds,
+  onChange,
+  onOdChange,
+  onResetMarks,
+  onResetAll,
+  onClose,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [holidayDraft, setHolidayDraft] = useState("");
   useModal(ref, onClose);
 
-  const baseline = settings.baselines[settings.scenario];
+  const baseline = settings.baseline;
 
   function setBaseline(code: CourseCode, index: 0 | 1, n: number) {
-    const pair: [number, number] = [...baseline[code]];
+    const pair: [number, number] = [baseline[code][0], baseline[code][1]];
     pair[index] = n;
-    onChange({
-      ...settings,
-      baselines: { ...settings.baselines, [settings.scenario]: { ...baseline, [code]: pair } },
-    });
+    onChange({ ...settings, baseline: { ...baseline, [code]: pair } });
   }
 
   function addHoliday() {
@@ -120,34 +130,7 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <fieldset>
-            <legend className="text-sm font-bold">Scenario</legend>
-            <p className="mt-0.5 text-xs text-subtle">
-              Whether your pending OD (on-duty) requests are counted as present.
-            </p>
-            <div className="mt-2 grid grid-cols-2 gap-1.5">
-              {(Object.keys(SCENARIO_LABEL) as Scenario[]).map((s) => {
-                const active = settings.scenario === s;
-                return (
-                  <label
-                    key={s}
-                    className={`flex min-h-11 cursor-pointer items-center justify-center rounded-lg border-[1.5px] px-3 text-sm font-semibold has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-ink ${
-                      active ? "border-teal bg-teal text-white" : "border-line bg-surface hover:border-teal"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="scenario"
-                      className="sr-only"
-                      checked={active}
-                      onChange={() => onChange({ ...settings, scenario: s })}
-                    />
-                    {SCENARIO_LABEL[s]}
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
+          <OdSection odState={settings.odState} autoFocus={focusOds} onChange={onOdChange} />
 
           <fieldset className="mt-5">
             <legend className="text-sm font-bold">Theme</legend>
@@ -198,10 +181,11 @@ export function SettingsDrawer({ settings, markCount, onChange, onResetMarks, on
             </label>
           </div>
 
-          <h3 className="mt-6 text-sm font-bold">Baseline attendance ({SCENARIO_LABEL[settings.scenario]})</h3>
+          <h3 className="mt-6 text-sm font-bold">Portal attendance (ODs not included)</h3>
           <p className="mt-0.5 text-xs text-subtle">
-            Present and held hours from your latest export. Classes on or before the date below are
-            treated as already counted here.
+            Present and held hours exactly as the portal shows them. After a fresh export, update
+            these, set the date below, and tick &ldquo;Already shows DL on the portal&rdquo; for any OD
+            the portal now counts. Classes on or before the date are treated as already counted here.
           </p>
           <label className="mt-2 block text-sm font-semibold">
             Baseline as of
