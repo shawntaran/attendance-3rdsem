@@ -3,7 +3,9 @@
 // For each course independently:
 //   1. Sessions = timetable sessions in the window, minus holidays, minus dates
 //      on or before baselineAsOf (those are already inside the baseline).
-//   2. Walk them from the baseline (P present, H held). A marked session, or an
+//   2. Walk them from the baseline (P present, H held). P is the portal figure
+//      plus the hours of every OD that is switched on and not already in the
+//      portal; H is the portal figure as is. A marked session, or an
 //      unmarked one in the past (assumed attended), updates P and H. The rest
 //      are the remaining list R.
 //   3. n = hours in R. budgetHours = clamp(floor(P - t*H + (1-t)*n) - cushion, 0, n).
@@ -14,10 +16,13 @@
 import {
   COURSES,
   COURSE_NAME,
+  ODS,
   TIMETABLE,
   WEEKS,
   WINDOW_END,
   WINDOW_START,
+  odAddsHours,
+  type Baseline,
   type CourseCode,
   type Settings,
 } from "./config";
@@ -53,6 +58,8 @@ export interface CoursePlan {
   present: number;
   held: number;
   currentPct: number;
+  /** OD hours counted as present on top of the portal baseline. */
+  odHours: number;
   /** Every session of the course after the baseline, in time order. */
   sessions: PlanSession[];
   /** Undecided sessions, in time order. */
@@ -134,9 +141,36 @@ export function listSessions(settings: Pick<Settings, "holidays" | "baselineAsOf
   return out;
 }
 
+/** Hours per course added by the ODs that are on and not already in the portal. */
+export function countedOdHours(settings: Pick<Settings, "odState">): Record<CourseCode, number> {
+  const out = Object.fromEntries(COURSES.map((c) => [c.code, 0])) as Record<CourseCode, number>;
+  for (const od of ODS) {
+    if (!odAddsHours(settings.odState[od.id])) continue;
+    for (const [code, hours] of Object.entries(od.hours)) {
+      out[code as CourseCode] += hours ?? 0;
+    }
+  }
+  return out;
+}
+
+/**
+ * The baseline the plan starts from: portal present plus counted OD hours.
+ * Held is unchanged, because those hours are already held (as absences).
+ */
+export function effectiveBaseline(settings: Pick<Settings, "baseline" | "odState">): Baseline {
+  const od = countedOdHours(settings);
+  return Object.fromEntries(
+    COURSES.map((c) => {
+      const [present, held] = settings.baseline[c.code];
+      return [c.code, [present + od[c.code], held]];
+    }),
+  ) as Baseline;
+}
+
 export function computePlan({ settings, marks, today }: ComputePlanInput): Plan {
   const t = settings.targetPct / 100;
-  const baseline = settings.baselines[settings.scenario];
+  const baseline = effectiveBaseline(settings);
+  const odHours = countedOdHours(settings);
   const all = listSessions(settings);
 
   const courses: CoursePlan[] = [];
@@ -197,6 +231,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
       present,
       held,
       currentPct: pct(present, held),
+      odHours: odHours[course.code],
       sessions,
       remaining,
       remainingHours: n,
@@ -338,4 +373,24 @@ export function diffPlans(before: Plan, after: Plan): PlanDiff {
   }
 
   return { moves, lost, gained, changedIds };
+}
+
+// ---- Budget changes --------------------------------------------------------
+
+export interface BudgetChange {
+  course: CourseCode;
+  courseName: string;
+  before: number;
+  after: number;
+}
+
+/** Courses whose budgetHours differ between two plans, in course order. */
+export function diffBudgets(before: Plan, after: Plan): BudgetChange[] {
+  const out: BudgetChange[] = [];
+  for (const { code } of COURSES) {
+    const b = before.byCourse[code].budgetHours;
+    const a = after.byCourse[code].budgetHours;
+    if (a !== b) out.push({ course: code, courseName: COURSE_NAME[code], before: b, after: a });
+  }
+  return out;
 }

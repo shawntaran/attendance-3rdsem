@@ -1,6 +1,7 @@
 // All the fixed data for the planner: window, periods, timetable, courses and
-// the baseline attendance. To update after re-exporting attendance, edit
-// BASELINES and BASELINE_AS_OF below (or use the Settings drawer in the app).
+// the portal baseline plus the list of ODs. To update after re-exporting
+// attendance, edit PORTAL_BASELINE and BASELINE_AS_OF below (or use the
+// Settings drawer in the app).
 
 export type CourseCode =
   | "CSE2251"
@@ -153,48 +154,143 @@ export const TIMETABLE: Record<number, Slot[]> = {
   ],
 };
 
-// ---- Baseline attendance ---------------------------------------------------
+// ---- Portal baseline -------------------------------------------------------
 
 /** [present hours, held hours]. DL counted present, SUS excluded. */
 export type Baseline = Record<CourseCode, [number, number]>;
 
-export type Scenario = "odsGranted" | "odsPending";
-
-export const SCENARIO_LABEL: Record<Scenario, string> = {
-  odsGranted: "ODs granted",
-  odsPending: "ODs pending",
-};
-
 export const BASELINE_AS_OF = "2026-11-10";
 
-export const BASELINES: Record<Scenario, Baseline> = {
-  odsGranted: {
-    CSE2251: [33, 34],
-    CSE2252: [21, 22],
-    APT4002: [20, 20],
-    CSE2259: [18, 22],
-    CSE2257: [34, 36],
-    CSE2253: [29, 33],
-    MAT2303: [32, 38],
-    CSE2255: [26, 29],
-    CSE2258: [31, 34],
-    CSE2256: [24, 24],
-    CSE2254: [20, 20],
-  },
-  odsPending: {
-    CSE2251: [29, 34],
-    CSE2252: [19, 22],
-    APT4002: [14, 20],
-    CSE2259: [16, 22],
-    CSE2257: [30, 36],
-    CSE2253: [25, 33],
-    MAT2303: [26, 38],
-    CSE2255: [24, 29],
-    CSE2258: [27, 34],
-    CSE2256: [19, 24],
-    CSE2254: [20, 20],
-  },
+/**
+ * Attendance exactly as the Linways portal shows it on BASELINE_AS_OF.
+ * OD hours the portal has not approved yet are still absent in here; the ODS
+ * list below is what turns them into present hours.
+ */
+export const PORTAL_BASELINE: Baseline = {
+  CSE2251: [29, 34],
+  CSE2252: [19, 22],
+  APT4002: [14, 20],
+  CSE2259: [16, 22],
+  CSE2257: [30, 36],
+  CSE2253: [25, 33],
+  MAT2303: [26, 38],
+  CSE2255: [24, 29],
+  CSE2258: [27, 34],
+  CSE2256: [19, 24],
+  CSE2254: [20, 20],
 };
+
+// ---- On-duty leaves (OD) ---------------------------------------------------
+
+export interface OdLeave {
+  id: string;
+  /** The day of the leave, YYYY-MM-DD. */
+  date: string;
+  reason: string;
+  /** True when it is not sure an OD was applied for at all. */
+  unconfirmed?: boolean;
+  /**
+   * Absent hours sitting in the portal baseline that this OD would turn into
+   * present hours, per course.
+   */
+  hours: Partial<Record<CourseCode, number>>;
+}
+
+export const ODS: OdLeave[] = [
+  {
+    id: "od-2026-08-12",
+    date: "2026-08-12",
+    reason: "eMudhra visit (full-day OD)",
+    hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 },
+  },
+  {
+    id: "od-2026-09-04",
+    date: "2026-09-04",
+    reason: "Aptitude hours, OD not confirmed",
+    unconfirmed: true,
+    hours: { APT4002: 2 },
+  },
+  {
+    id: "od-2026-09-15",
+    date: "2026-09-15",
+    reason: "Engineer's Day",
+    hours: { CSE2257: 1 },
+  },
+  {
+    id: "od-2026-09-16",
+    date: "2026-09-16",
+    reason: "SIH hackathon",
+    hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 },
+  },
+  {
+    id: "od-2026-09-17",
+    date: "2026-09-17",
+    reason: "SIH hackathon",
+    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 },
+  },
+  {
+    id: "od-2026-09-24",
+    date: "2026-09-24",
+    reason: "Anveshana Pitchathon",
+    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 1 },
+  },
+  {
+    id: "od-2026-09-29",
+    date: "2026-09-29",
+    reason: "French event, Seminar Hall",
+    hours: { CSE2252: 1 },
+  },
+  {
+    id: "od-2026-10-27",
+    date: "2026-10-27",
+    reason: "Chip to Crop",
+    hours: { CSE2252: 1 },
+  },
+  {
+    id: "od-2026-10-29",
+    date: "2026-10-29",
+    reason: "Alliance hackathon",
+    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 },
+  },
+  {
+    id: "od-2026-10-30",
+    date: "2026-10-30",
+    reason: "Alliance hackathon",
+    hours: { CSE2257: 1, CSE2251: 1, CSE2259: 2, CSE2253: 1, CSE2258: 1, MAT2303: 1 },
+  },
+];
+
+export function odTotalHours(od: OdLeave): number {
+  return Object.values(od.hours).reduce((sum, h) => sum + (h ?? 0), 0);
+}
+
+export const OD_TOTAL_HOURS = ODS.reduce((sum, od) => sum + odTotalHours(od), 0);
+
+export interface OdToggle {
+  /** Count this OD's hours as present. */
+  on: boolean;
+  /**
+   * The portal already shows these hours as DL, so they are inside the
+   * baseline. The OD then adds nothing, whatever `on` says.
+   */
+  inPortal: boolean;
+}
+
+export type OdState = Record<string, OdToggle>;
+
+export function odStateAll(on: boolean): OdState {
+  return Object.fromEntries(ODS.map((od) => [od.id, { on, inPortal: false }]));
+}
+
+/** True when the OD's hours are added on top of the portal baseline. */
+export function odAddsHours(toggle: OdToggle | undefined): boolean {
+  return !!toggle && toggle.on && !toggle.inPortal;
+}
+
+/** True when the OD ends up present, either added here or already DL on the portal. */
+export function odCounted(toggle: OdToggle | undefined): boolean {
+  return !!toggle && (toggle.on || toggle.inPortal);
+}
 
 // ---- Settings --------------------------------------------------------------
 
@@ -209,14 +305,16 @@ export const THEME_LABEL: Record<Theme, string> = {
 export interface Settings {
   /** "system" follows the device's light or dark setting. */
   theme: Theme;
-  scenario: Scenario;
   /** Target attendance in percent, e.g. 75. */
   targetPct: number;
   /** Safety margin in hours kept unspent in every course. */
   cushionHours: number;
   /** Sessions on or before this date are already inside the baseline. */
   baselineAsOf: string;
-  baselines: Record<Scenario, Baseline>;
+  /** Portal attendance, ODs not included. */
+  baseline: Baseline;
+  /** Which ODs to count as present. */
+  odState: OdState;
   holidays: string[];
 }
 
@@ -226,11 +324,11 @@ export const DEFAULT_CUSHION_HOURS = 1;
 export function defaultSettings(): Settings {
   return {
     theme: "system",
-    scenario: "odsGranted",
     targetPct: DEFAULT_TARGET_PCT,
     cushionHours: DEFAULT_CUSHION_HOURS,
     baselineAsOf: BASELINE_AS_OF,
-    baselines: structuredClone(BASELINES),
+    baseline: structuredClone(PORTAL_BASELINE),
+    odState: odStateAll(true),
     holidays: [...DEFAULT_HOLIDAYS],
   };
 }
