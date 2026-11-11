@@ -14,7 +14,7 @@
 // failed request: it stays in the record and is retried.
 
 import { applyLocalValues, mergeStates, statesEqual, type MergeConflict } from "./merge";
-import type { LoadResult, RemoteApi, RemoteRecord, SaveResult, SyncFailure } from "./remote";
+import type { FailureKind, LoadResult, RemoteApi, RemoteRecord, SaveResult, SyncFailure } from "./remote";
 import { defaultState, type AppState } from "./storage";
 
 export type SyncConflict =
@@ -167,6 +167,8 @@ export interface SyncSnapshot {
   status: SyncStatus;
   /** Detail for the status, e.g. why sync failed. */
   message: string | null;
+  /** Why the last request failed, or null. "unauthorized" means the access key is missing or wrong. */
+  failureKind: FailureKind | null;
   conflict: SyncConflict | null;
   /** Bumps whenever the visible state changes because of another device. */
   remoteRevision: number;
@@ -368,7 +370,8 @@ export class SyncEngine {
   private failed(error: SyncFailure) {
     this.failure = error;
     this.emit();
-    this.scheduleRetry();
+    // Retrying cannot fix a missing or wrong key; wait for a new one (syncNow).
+    if (error.kind !== "unauthorized") this.scheduleRetry();
   }
 
   private async doSync(): Promise<void> {
@@ -429,7 +432,7 @@ export class SyncEngine {
       this.emit();
       if (this.rec.legacyKey && !stillPending && !this.rec.conflict) await this.verifyLegacy();
     }
-    if (this.rec.pending && !this.disposed) this.scheduleRetry();
+    if (this.rec.pending && !this.disposed && this.failure?.kind !== "unauthorized") this.scheduleRetry();
   }
 
   /** Read the record back and only then drop the pre-cloud localStorage copy. */
@@ -484,6 +487,7 @@ export class SyncEngine {
       state: this.rec.state,
       status: this.status(),
       message: this.failure?.message ?? null,
+      failureKind: this.failure?.kind ?? null,
       conflict: this.rec.conflict,
       remoteRevision: this.remoteRevision,
     };

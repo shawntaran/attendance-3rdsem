@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clearAccessKey, setAccessKey } from "@/lib/accessKey";
 import { localCache } from "@/lib/localCache";
 import { remoteApi, saveRemoteStateOnExit } from "@/lib/remote";
 import { clearLegacy, defaultState, readLegacy, type AppState } from "@/lib/storage";
@@ -14,6 +15,7 @@ const INITIAL: SyncSnapshot = {
   state: defaultState(),
   status: "connecting",
   message: null,
+  failureKind: null,
   conflict: null,
   remoteRevision: 0,
 };
@@ -76,6 +78,15 @@ export function usePlannerSync() {
   const update = useCallback((state: AppState) => engineRef.current?.update(state), []);
   const resolveConflict = useCallback((choice: "cloud" | "device") => engineRef.current?.resolveConflict(choice), []);
   const retry = useCallback(() => engineRef.current?.syncNow(), []);
+  /** Save this device's access key and sync straight away. */
+  const saveAccessKey = useCallback((key: string) => {
+    setAccessKey(key);
+    return engineRef.current?.syncNow();
+  }, []);
+  const forgetAccessKey = useCallback(() => {
+    clearAccessKey();
+    return engineRef.current?.syncNow();
+  }, []);
 
-  return { ...snapshot, update, resolveConflict, retry };
+  return { ...snapshot, update, resolveConflict, retry, saveAccessKey, forgetAccessKey };
 }

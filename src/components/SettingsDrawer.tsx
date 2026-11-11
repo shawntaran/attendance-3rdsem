@@ -12,6 +12,7 @@ import {
 } from "@/lib/config";
 import { formatDate, isValidDate } from "@/lib/dates";
 import { OdSection } from "./OdSection";
+import { AccessKeyForm } from "./AccessKeyForm";
 import { PlanWindowSection } from "./PlanWindowSection";
 import { CloseIcon } from "./icons";
 import { useModal } from "./useModal";
@@ -26,6 +27,10 @@ interface Props {
   onOdChange: (odState: OdState) => void;
   onResetMarks: () => void;
   onResetAll: () => void;
+  /** Whether this device has a cloud access key saved. */
+  hasAccessKey: boolean;
+  onSaveAccessKey: (key: string) => void;
+  onForgetAccessKey: () => void;
   onClose: () => void;
 }
 
@@ -76,6 +81,9 @@ export function SettingsDrawer({
   onOdChange,
   onResetMarks,
   onResetAll,
+  hasAccessKey,
+  onSaveAccessKey,
+  onForgetAccessKey,
   onClose,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -288,6 +296,35 @@ export function SettingsDrawer({
               Add
             </button>
           </div>
+
+          <h3 className="mt-6 text-sm font-bold">Cloud access key</h3>
+          <p className="mt-0.5 text-xs text-subtle">
+            {hasAccessKey
+              ? "This device has a key saved. Enter a new one to replace it."
+              : "No key on this device yet, so it cannot sync."}{" "}
+            The key is the PLANNER_ACCESS_KEY set on the server.
+          </p>
+          <div className="mt-2">
+            <AccessKeyForm
+              label={hasAccessKey ? "New access key" : "Access key"}
+              submitLabel="Save key"
+              inputCls={`${inputCls} mt-1 font-normal`}
+              onSave={onSaveAccessKey}
+            />
+          </div>
+          {hasAccessKey && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Forget the access key on this device? It stops syncing until you enter it again.")) {
+                  onForgetAccessKey();
+                }
+              }}
+              className="mt-2 min-h-11 w-full rounded-lg border-[1.5px] border-ink bg-surface px-4 text-sm font-bold hover:bg-empty"
+            >
+              Forget key on this device
+            </button>
+          )}
 
           <h3 className="mt-6 text-sm font-bold">Reset</h3>
           <div className="mt-2 flex flex-col gap-2">

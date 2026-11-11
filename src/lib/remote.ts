@@ -1,6 +1,7 @@
 // Client side of /api/planner. Never talks to Supabase directly: the browser
 // only ever sees this app's own API, and the service-role key stays on the server.
 
+import { getAccessKey } from "./accessKey";
 import { tryValidateState, type AppState } from "./storage";
 
 export interface RemoteRecord {
@@ -9,7 +10,7 @@ export interface RemoteRecord {
   updatedAt: string | null;
 }
 
-export type FailureKind = "offline" | "not_configured" | "server" | "invalid";
+export type FailureKind = "offline" | "not_configured" | "unauthorized" | "server" | "invalid";
 
 export interface SyncFailure {
   kind: FailureKind;
@@ -54,6 +55,12 @@ async function failureFrom(res: Response): Promise<SyncFailure> {
     // not JSON
   }
   if (code === "not_configured") return { kind: "not_configured", message: "Cloud sync is not set up on the server." };
+  if (res.status === 401) {
+    return {
+      kind: "unauthorized",
+      message: getAccessKey() ? "The access key on this device is wrong." : "This device needs the access key.",
+    };
+  }
   return { kind: "server", message };
 }
 
@@ -62,12 +69,17 @@ function offline(err: unknown): SyncFailure {
   return { kind: "offline", message: aborted ? "The server took too long to answer." : "No connection to the server." };
 }
 
+function authHeaders(): Record<string, string> {
+  const key = getAccessKey();
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
 async function request(init: RequestInit): Promise<Response> {
   return fetch(ENDPOINT, {
     ...init,
     cache: "no-store",
     signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
   });
 }
 
@@ -115,7 +127,12 @@ export function saveRemoteStateOnExit(state: AppState, expectedVersion: number):
   try {
     const body = JSON.stringify({ state, expectedVersion });
     if (body.length > 60_000) return; // keepalive requests are limited to 64 KB
-    void fetch(ENDPOINT, { method: "PUT", body, keepalive: true, headers: { "Content-Type": "application/json" } });
+    void fetch(ENDPOINT, {
+      method: "PUT",
+      body,
+      keepalive: true,
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    });
   } catch {
     // ignore: the pending change is still in the cache
   }

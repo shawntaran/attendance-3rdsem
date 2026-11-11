@@ -15,6 +15,8 @@ import {
 } from "@/lib/plan";
 import { THEME_KEY, defaultState, type AppState } from "@/lib/storage";
 import { endLabel, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
+import { getAccessKey } from "@/lib/accessKey";
+import { AccessKeyBanner } from "./AccessKeyBanner";
 import { ColorKey } from "./ColorKey";
 import { ConflictBanner } from "./ConflictBanner";
 import { CourseTable } from "./CourseTable";
@@ -286,6 +288,9 @@ export function Planner() {
         {SECTION} · keep every course at {state.settings.targetPct}% till {end}
       </p>
 
+      {ready && sync.failureKind === "unauthorized" && (
+        <AccessKeyBanner message={sync.message} onSave={(key) => void sync.saveAccessKey(key)} />
+      )}
       {ready && sync.conflict && (
         <ConflictBanner conflict={sync.conflict} onResolve={(choice) => void sync.resolveConflict(choice)} />
       )}
@@ -349,6 +354,13 @@ export function Planner() {
           focusOds={settingsOpen === "ods"}
           onChange={changeSettings}
           onOdChange={handleOdChange}
+          hasAccessKey={!!getAccessKey()}
+          onSaveAccessKey={(key) => {
+            void sync.saveAccessKey(key);
+            counter.current += 1;
+            setToast({ key: counter.current, message: "Access key saved on this device.", canUndo: false });
+          }}
+          onForgetAccessKey={() => void sync.forgetAccessKey()}
           onResetMarks={() => {
             undoState.current = null;
             setToast(null);

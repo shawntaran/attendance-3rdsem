@@ -439,3 +439,38 @@ describe("cross-device sync", () => {
     expect(a.getSnapshot().state.marks).toEqual(server.serverState()?.marks);
   });
 });
+
+describe("access key", () => {
+  it("a refused key keeps edits pending, does not retry in a loop, and syncs once the key is fixed", async () => {
+    const server = fakeServer();
+    let locked = true;
+    const api = server.api();
+    const unauthorized = { type: "error" as const, error: { kind: "unauthorized" as const, message: "needs key" } };
+    const timers: number[] = [];
+    const cache = memoryCache();
+    const engine = new SyncEngine({
+      remote: {
+        load: () => (locked ? Promise.resolve(unauthorized) : api.load()),
+        save: (s, v) => (locked ? Promise.resolve(unauthorized) : api.save(s, v)),
+      },
+      cache,
+      legacy: { read: () => null, clear: () => {} },
+      setTimer: (_fn, ms) => timers.push(ms),
+      clearTimer: () => {},
+    });
+    await engine.start();
+    engine.update(mark(engine.getSnapshot().state, "2026-11-12@1"));
+    timers.length = 0; // ignore the debounce timer from update()
+    await engine.flush();
+
+    expect(engine.getSnapshot()).toMatchObject({ status: "error", failureKind: "unauthorized" });
+    expect(cache.record?.pending).toBe(true);
+    expect(timers).toEqual([]); // no retry timer for a wrong key
+    expect(server.repo.record).toBeNull();
+
+    locked = false; // the key was entered
+    await engine.syncNow();
+    expect(server.serverState()?.marks).toEqual({ "2026-11-12@1": "skipped" });
+    expect(engine.getSnapshot()).toMatchObject({ status: "synced", failureKind: null });
+  });
+});

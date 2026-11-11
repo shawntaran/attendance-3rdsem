@@ -14,7 +14,8 @@ finish every one of the 11 courses at 75% attendance or more on the last day of 
 - A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
   combination and see the skip budget change at once.
 - Cloud sync: the same marks and settings on every device, through a Supabase database behind
-  this app's own API. No login: it is a single-user planner. It keeps working offline and syncs
+  this app's own API. No accounts: it is a single-user planner, locked with one private access
+  key that each of your devices enters once. It keeps working offline and syncs
   when the connection is back. See [Cloud sync](#cloud-sync).
 - Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
@@ -162,6 +163,10 @@ Planner UI                               /api/planner                   planner_
 - **The browser never talks to Supabase.** It calls `/api/planner` on this app. The route uses
   the service-role key, which exists only on the server. The table has Row Level Security on
   with no policies, so the public Supabase API cannot read or change it.
+- **Access key.** Every request to `/api/planner` must carry the key from the server's
+  `PLANNER_ACCESS_KEY` (`Authorization: Bearer <key>`), checked in constant time before the
+  database is touched. Without it the API answers 401. With no key configured on the server it
+  refuses everyone (fails closed). Each device stores its copy of the key in localStorage.
 - **No silent overwrites.** Every save sends the version it was based on. The server updates the
   row only if the version still matches (one atomic `UPDATE ... WHERE version = n`) and sets
   the new version itself; otherwise it answers 409 with what it has now. A database trigger also
@@ -216,21 +221,36 @@ The status next to the week title shows **Cloud synced**, **Saving...**, **Sync 
    the table to the service role.
 3. **Project Settings** > **API**: copy the **Project URL** and the **service_role** key (under
    "Project API keys"; it is secret).
-4. Locally: copy `.env.example` to `.env.local` and fill in both values. `.env.local` is
+4. Make an access key: a long random string, at least 24 characters (shorter ones are refused).
+   For example:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+   ```
+
+   Keep it somewhere safe, such as a password manager.
+5. Locally: copy `.env.example` to `.env.local` and fill in all three values. `.env.local` is
    git-ignored.
-5. On Vercel: **Project** > **Settings** > **Environment Variables**, add `SUPABASE_URL` and
-   `SUPABASE_SERVICE_ROLE_KEY` for Production (and Preview if you use it), then redeploy.
-   Never prefix them with `NEXT_PUBLIC_`.
-6. Open the app. The status should turn to **Cloud synced**, and your existing data is uploaded as
-   described above. Without the variables the API answers "not configured", the status shows
-   **Sync error**, and the app keeps everything on the device.
+6. On Vercel: **Project** > **Settings** > **Environment Variables**, add `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY` and `PLANNER_ACCESS_KEY` for Production (and Preview if you use
+   it), then redeploy. Never prefix them with `NEXT_PUBLIC_`.
+7. Open the app on each device. It shows **Cloud sync is locked on this device**: paste the access
+   key and press **Unlock sync**. The status turns to **Cloud synced**, and your existing data is
+   uploaded as described above. You can change or forget the key later in **Settings > Cloud
+   access key**.
+
+Without the variables the API answers "not configured", the status shows **Sync error**, and the
+app keeps everything on the device. To lock out a lost device, change `PLANNER_ACCESS_KEY` on
+Vercel, redeploy, and enter the new key on the devices you still use.
 
 You do not need to enable Realtime: sync works through the app's API.
 
 ### Limitations
 
-- **The API has no login.** Anyone who knows the deployed URL can read and change the planner
-  through `/api/planner` (the database itself is locked). Keep the URL private.
+- **One shared key, no accounts.** Anyone with the access key can read and change the planner, so
+  keep it private. There is no rate limit on wrong guesses; a random key of 32 bytes makes guessing
+  hopeless, which is why short keys are refused. The key sits in each device's localStorage, so
+  anyone using that browser profile can use it.
 - Changes from another device appear within about 15 s while the tab is open, not instantly.
 - Two tabs on the same device share one cache. If one tab is closed within a second of an edit
   while offline, that edit can be overwritten in the cache by the other tab (it is still sent if
@@ -281,7 +301,7 @@ Holidays work the same way: add them in **Settings > Holidays**, or put them in
 ## Deploy on Vercel
 
 The app is a standard Next.js project. Vercel detects the framework. For cloud sync it needs the
-two environment variables from [Set up Supabase](#set-up-supabase); without them it still builds
+three environment variables from [Set up Supabase](#set-up-supabase); without them it still builds
 and runs, keeping data on each device.
 
 ### With GitHub (recommended)
