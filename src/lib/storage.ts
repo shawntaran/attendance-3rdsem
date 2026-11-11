@@ -2,23 +2,31 @@
 // fails validation on load is thrown away and the defaults are used instead.
 //
 // v1 had two baseline scenarios ("ODs granted" / "ODs pending"). v2 has one
-// portal baseline plus a switch per OD. A v1 state is migrated once on load.
+// portal baseline plus a switch per OD. v3 adds the plan's end date and extra
+// working days. An older state is migrated once on load.
 
 import {
   COURSE_CODES,
+  MAX_WINDOW_END,
   ODS,
+  WINDOW_START,
   defaultSettings,
   odStateAll,
   type Baseline,
+  type ExtraWorkingDay,
   type OdState,
   type Settings,
   type Theme,
+  type TimetableWeekday,
 } from "./config";
-import { isValidDate } from "./dates";
+import { isValidDate, weekdayIndex } from "./dates";
 import type { Marks } from "./plan";
 
-export const STORAGE_KEY = "skip-planner:v2";
+export const STORAGE_KEY = "skip-planner:v3";
+export const STORAGE_KEY_V2 = "skip-planner:v2";
 export const STORAGE_KEY_V1 = "skip-planner:v1";
+
+export const MAX_REASON_LENGTH = 120;
 
 export interface AppState {
   settings: Settings;
@@ -87,8 +95,36 @@ function parseHolidays(v: unknown): string[] {
   return [...new Set(v)].sort();
 }
 
-function parseSettings(v: unknown): Settings {
-  if (!isObject(v)) throw new Error("settings");
+function parseWindowEnd(v: unknown): string {
+  if (!isValidDate(v) || v < WINDOW_START || v > MAX_WINDOW_END) throw new Error("windowEnd");
+  return v;
+}
+
+/**
+ * Shape checks only: a day may fall outside the window if "Plan until" moved
+ * after it was added, and is then simply ignored. Sundays and repeated dates
+ * are rejected, because the grid never shows a Sunday.
+ */
+function parseExtraWorkingDays(v: unknown): ExtraWorkingDay[] {
+  if (!Array.isArray(v)) throw new Error("extraWorkingDays");
+  const seen = new Set<string>();
+  const out: ExtraWorkingDay[] = [];
+  for (const x of v) {
+    if (!isObject(x) || !isValidDate(x.date) || weekdayIndex(x.date) === 0 || seen.has(x.date)) {
+      throw new Error("extraWorkingDays date");
+    }
+    if (!([1, 2, 3, 4, 5] as unknown[]).includes(x.followsWeekday)) throw new Error("extraWorkingDays weekday");
+    if (typeof x.reason !== "string" || x.reason.length > MAX_REASON_LENGTH) throw new Error("extraWorkingDays reason");
+    seen.add(x.date);
+    out.push({ date: x.date, followsWeekday: x.followsWeekday as TimetableWeekday, reason: x.reason });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The fields v2 and v3 share. */
+type SharedSettings = Omit<Settings, "windowEnd" | "extraWorkingDays">;
+
+function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
   if (!isValidDate(v.baselineAsOf)) throw new Error("baselineAsOf");
   return {
     theme: parseTheme(v.theme),
@@ -98,6 +134,15 @@ function parseSettings(v: unknown): Settings {
     baseline: parseBaseline(v.baseline),
     odState: parseOdState(v.odState),
     holidays: parseHolidays(v.holidays),
+  };
+}
+
+function parseSettings(v: unknown): Settings {
+  if (!isObject(v)) throw new Error("settings");
+  return {
+    ...parseSharedSettings(v),
+    windowEnd: parseWindowEnd(v.windowEnd),
+    extraWorkingDays: parseExtraWorkingDays(v.extraWorkingDays),
   };
 }
 
@@ -113,7 +158,7 @@ function parseMarks(v: unknown): Marks {
   return out;
 }
 
-/** Parse a stored v2 value. Returns the defaults on any error. */
+/** Parse a stored v3 value. Returns the defaults on any error. */
 export function parseState(raw: string | null | undefined): AppState {
   if (!raw) return defaultState();
   try {
@@ -126,7 +171,30 @@ export function parseState(raw: string | null | undefined): AppState {
 }
 
 /**
- * Turn a stored v1 value into a v2 state, or null if it cannot be read.
+ * Turn a stored v2 value into a v3 state, or null if it cannot be read.
+ * Keeps everything; the plan end date and extra working days get the defaults.
+ */
+export function migrateV2(raw: string | null | undefined): AppState | null {
+  if (!raw) return null;
+  try {
+    const data: unknown = JSON.parse(raw);
+    if (!isObject(data) || !isObject(data.settings)) throw new Error("root");
+    const d = defaultSettings();
+    return {
+      settings: {
+        ...parseSharedSettings(data.settings),
+        windowEnd: d.windowEnd,
+        extraWorkingDays: d.extraWorkingDays,
+      },
+      marks: parseMarks(data.marks),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Turn a stored v1 value into a v3 state, or null if it cannot be read.
  * Keeps marks, target, cushion, holidays and theme. The old scenario becomes
  * all ODs on ("odsGranted") or all off ("odsPending"). The baseline is reset
  * to the new portal defaults, because the v1 tables mixed ODs into it.
@@ -161,16 +229,29 @@ export interface KeyValueStore {
   removeItem(key: string): void;
 }
 
-/** Load from a store, migrating a v1 state if that is all there is. */
+/**
+ * Load from a store. With no v3 state, migrate the newest older one (v2, then
+ * v1), save it as v3 and remove the old key. An unreadable old value is left
+ * alone and the defaults are used.
+ */
 export function loadFrom(store: KeyValueStore): AppState {
   const current = store.getItem(STORAGE_KEY);
   if (current !== null) return parseState(current);
 
-  const migrated = migrateV1(store.getItem(STORAGE_KEY_V1));
-  if (!migrated) return defaultState();
-  store.setItem(STORAGE_KEY, JSON.stringify(migrated));
-  store.removeItem(STORAGE_KEY_V1);
-  return migrated;
+  const older: [string, (raw: string | null) => AppState | null][] = [
+    [STORAGE_KEY_V2, migrateV2],
+    [STORAGE_KEY_V1, migrateV1],
+  ];
+  for (const [key, migrate] of older) {
+    const raw = store.getItem(key);
+    if (raw === null) continue;
+    const migrated = migrate(raw);
+    if (!migrated) return defaultState();
+    store.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    store.removeItem(key);
+    return migrated;
+  }
+  return defaultState();
 }
 
 export function loadState(): AppState {
