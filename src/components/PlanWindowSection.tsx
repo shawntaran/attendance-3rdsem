@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  FIXED_MUTED_DAYS,
   MAX_WINDOW_END,
   WEEKDAY_NAME,
   WINDOW_START,
@@ -35,6 +36,7 @@ export function extraDayError(settings: Settings, date: string): string | null {
 /** Notes on a listed day that the plan does not use as entered. */
 function rowNote(settings: Settings, day: ExtraWorkingDay): string | null {
   if (day.date < WINDOW_START || day.date > settings.windowEnd) return "Outside the plan, so it is ignored.";
+  if (FIXED_MUTED_DAYS[day.date]) return `${FIXED_MUTED_DAYS[day.date]}. That wins, so no classes.`;
   if (settings.holidays.includes(day.date)) return "Also a holiday. The holiday wins, so no classes.";
   return null;
 }

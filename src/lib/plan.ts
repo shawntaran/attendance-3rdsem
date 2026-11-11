@@ -18,6 +18,7 @@
 import {
   COURSES,
   COURSE_NAME,
+  FIXED_MUTED_DAYS,
   ODS,
   TIMETABLE,
   WINDOW_START,
@@ -116,19 +117,20 @@ export function extraWorkingDayOn(
 
 /**
  * The weekday timetable (1 = Mon ... 5 = Fri) a date runs, or null for no
- * classes. Order: holiday, then extra working day, then the normal weekday.
- * Dates outside the window are not checked here.
+ * classes. Order: fixed no-class day or holiday, then extra working day, then
+ * the normal weekday. Dates outside the window are not checked here.
  */
 export function timetableDayFor(settings: WindowSettings, date: string): number | null {
-  if (settings.holidays.includes(date)) return null;
+  if (FIXED_MUTED_DAYS[date] || settings.holidays.includes(date)) return null;
   const extra = extraWorkingDayOn(settings, date);
   if (extra) return extra.followsWeekday;
   const wd = weekdayIndex(date);
   return wd >= 1 && wd <= 5 ? wd : null;
 }
 
-/** True for a date that would have classes if it were not a holiday. */
+/** True for a date that would have classes if it were not a holiday (used for week labels). */
 function isTeachingDate(settings: Pick<Settings, "extraWorkingDays">, date: string): boolean {
+  if (FIXED_MUTED_DAYS[date]) return false;
   const wd = weekdayIndex(date);
   return (wd >= 1 && wd <= 5) || !!extraWorkingDayOn(settings, date);
 }

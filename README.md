@@ -42,7 +42,8 @@ Labs and aptitude span 2 periods and count as 2 hours.
 1. **Sessions.** Take every timetable session of the course in the window (`WINDOW_START`
    2026-11-11 to the `windowEnd` setting, default 2026-12-05), remove dates on or before
    `baselineAsOf` (those are already inside the baseline), and sort by date and period. Which
-   timetable a date runs, in this order: a holiday has none; an extra working day runs the weekday
+   timetable a date runs, in this order: a fixed no-class day (such as 2 to 4 Dec) or a holiday
+   has none; an extra working day runs the weekday
    it follows (this also overrides a normal weekday); Monday to Friday run their own; weekends
    have none. See [Plan window](#plan-window-and-extra-working-days).
 2. **Walk them.** Start with `P` = baseline present hours and `H` = baseline held hours (see
@@ -125,6 +126,10 @@ shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in i
 - **Start:** `WINDOW_START`, 2026-11-11, fixed in [`src/lib/config.ts`](src/lib/config.ts).
 - **End:** the `windowEnd` setting, **Settings > Plan until**. Default 2026-12-05. The header
   ("till 5 Dec"), color key, allowance table and popover texts all use it.
+- **Term end:** the academic year ends on Tue 1 Dec, so Wed 2 to Fri 4 Dec have no classes. They
+  are fixed in `FIXED_MUTED_DAYS` in [`src/lib/config.ts`](src/lib/config.ts) (shown muted as
+  "No classes: term ended 1 Dec") and win over an extra working day on the same date. Sat 5 Dec is
+  the only teaching day after 1 Dec.
 - **Extra working days:** `extraWorkingDays`, a list of `{ date, followsWeekday, reason }`, edited
   in **Settings > Extra working days**. The default is Sat 5 Dec following Monday's timetable
   (MAT2303 period 1, CSE2255 period 2, CSE2254 periods 3 to 4), the make-up for the Mon 9 Nov

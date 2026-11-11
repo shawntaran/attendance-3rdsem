@@ -410,7 +410,7 @@ describe("on-duty leaves", () => {
   });
 });
 
-describe("plan window to 5 Dec with Sat 5 Dec on Monday's timetable", () => {
+describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable", () => {
   const p = plan({ extra: NEW_WINDOW });
   const sessions = (q: Plan) => COURSE_CODES.map((c) => q.byCourse[c].remaining.length);
 
@@ -428,46 +428,39 @@ describe("plan window to 5 Dec with Sat 5 Dec on Monday's timetable", () => {
     expect(old.greenHoursByWeek).toEqual([4, 13, 29, 11]);
   });
 
-  it("remaining hours and sessions per course", () => {
-    expect(COURSE_CODES.map((c) => p.byCourse[c].remainingHours)).toEqual([11, 6, 8, 8, 11, 11, 16, 11, 11, 8, 8]);
-    expect(sessions(p)).toEqual([11, 3, 4, 4, 11, 11, 16, 11, 11, 4, 4]);
+  it("Wed 2 to Fri 4 Dec have no classes", () => {
+    for (const date of ["2026-12-02", "2026-12-03", "2026-12-04"]) {
+      expect(Object.values(p.byId).filter((s) => s.date === date)).toEqual([]);
+    }
+  });
+
+  it("only the Saturday's courses gain hours over the old window", () => {
+    // Old window: 9,6,6,6,9,9,12,9,9,6,6. Sat 5 Dec adds MAT2303 +1, CSE2255 +1, CSE2254 +2.
+    expect(COURSE_CODES.map((c) => p.byCourse[c].remainingHours)).toEqual([9, 6, 6, 6, 9, 9, 13, 10, 9, 6, 8]);
+    expect(sessions(p)).toEqual([9, 3, 3, 3, 9, 9, 13, 10, 9, 3, 4]);
   });
 
   it("budgets and green counts", () => {
-    expect(budgetList(p)).toEqual([9, 5, 6, 2, 8, 6, 6, 6, 7, 7, 6]);
-    expect(greenCounts(p)).toEqual([9, 2, 3, 1, 8, 6, 6, 6, 7, 3, 3]);
+    expect(budgetList(p)).toEqual([8, 5, 5, 2, 8, 5, 5, 5, 6, 6, 6]);
+    expect(greenCounts(p)).toEqual([8, 2, 2, 1, 8, 5, 5, 5, 6, 3, 3]);
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([0, 10, 23, 33]);
-    expect(p.totalGreenHours).toBe(66);
+    expect(p.greenHoursByWeek).toEqual([4, 13, 27, 15]);
+    expect(p.totalGreenHours).toBe(59);
   });
 
   it("green dates", () => {
     expect(greens(p, "CSE2254")).toEqual(["2026-11-23", "2026-11-30", "2026-12-05"]);
-    expect(greens(p, "CSE2255")).toEqual([
-      "2026-11-24",
-      "2026-11-25",
-      "2026-11-30",
-      "2026-12-01",
-      "2026-12-02",
-      "2026-12-05",
-    ]);
-    expect(greens(p, "MAT2303")).toEqual([
-      "2026-11-27",
-      "2026-11-30",
-      "2026-12-02",
-      "2026-12-03",
-      "2026-12-04",
-      "2026-12-05",
-    ]);
+    expect(greens(p, "CSE2255")).toEqual(["2026-11-24", "2026-11-25", "2026-11-30", "2026-12-01", "2026-12-05"]);
+    expect(greens(p, "MAT2303")).toEqual(["2026-11-25", "2026-11-26", "2026-11-27", "2026-11-30", "2026-12-05"]);
   });
 
   it("all ODs off", () => {
     const off = plan({ ods: odStateAll(false), extra: NEW_WINDOW });
-    expect(budgetList(off)).toEqual([5, 3, 0, 0, 4, 2, 0, 4, 3, 2, 6]);
-    expect(greenCounts(off)).toEqual([5, 1, 0, 0, 4, 2, 0, 4, 3, 1, 3]);
-    expect(off.greenHoursByWeek).toEqual([0, 0, 5, 23]);
+    expect(budgetList(off)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 2, 1, 6]);
+    expect(greenCounts(off)).toEqual([4, 1, 0, 0, 4, 1, 0, 3, 2, 0, 3]);
+    expect(off.greenHoursByWeek).toEqual([0, 0, 9, 13]);
   });
 
   it("Sat 5 Dec runs exactly Monday's timetable", () => {
@@ -507,23 +500,33 @@ describe("plan window to 5 Dec with Sat 5 Dec on Monday's timetable", () => {
   it("a holiday on the Saturday removes its sessions", () => {
     const q = plan({ extra: { ...NEW_WINDOW, holidays: ["2026-12-05"] } });
     expect(Object.values(q.byId).filter((s) => s.date === "2026-12-05")).toEqual([]);
-    expect(q.byCourse.MAT2303.remainingHours).toBe(15);
+    expect(q.byCourse.MAT2303.remainingHours).toBe(12);
   });
 
   it("an extra working day on a weekday overrides that weekday's timetable", () => {
-    // Wed 2 Dec runs Friday's timetable instead of Wednesday's.
+    // Wed 25 Nov runs Friday's timetable instead of Wednesday's.
     const q = plan({
       extra: {
         windowEnd: "2026-12-05",
-        extraWorkingDays: [{ date: "2026-12-02", followsWeekday: 5, reason: "Swap" }],
+        extraWorkingDays: [{ date: "2026-11-25", followsWeekday: 5, reason: "Swap" }],
       },
     });
     const wed = Object.values(q.byId)
-      .filter((s) => s.date === "2026-12-02")
+      .filter((s) => s.date === "2026-11-25")
       .sort((a, b) => a.startPeriod - b.startPeriod)
       .map((s) => s.course);
     expect(wed).toEqual(["CSE2257", "CSE2251", "CSE2259", "CSE2253", "CSE2258", "MAT2303"]);
-    expect(q.byId["2026-12-02@1"].span).toBe(1); // not Aptitude's 2-period slot
+    expect(q.byId["2026-11-25@1"].span).toBe(1); // not Aptitude's 2-period slot
+  });
+
+  it("a fixed no-class day wins over an extra working day", () => {
+    const q = plan({
+      extra: {
+        windowEnd: "2026-12-05",
+        extraWorkingDays: [{ date: "2026-12-03", followsWeekday: 1, reason: "Test" }],
+      },
+    });
+    expect(Object.values(q.byId).filter((s) => s.date === "2026-12-03")).toEqual([]);
   });
 
   it("an extra working day outside the window adds nothing", () => {
@@ -531,7 +534,8 @@ describe("plan window to 5 Dec with Sat 5 Dec on Monday's timetable", () => {
       extra: { windowEnd: "2026-12-04", extraWorkingDays: NEW_WINDOW.extraWorkingDays },
     });
     expect(q.byId["2026-12-05@1"]).toBeUndefined();
-    expect(q.weeks.at(-1)?.to).toBe("2026-12-04");
+    // 2 to 4 Dec have no classes, so the last week ends on Tue 1 Dec.
+    expect(q.weeks.at(-1)?.to).toBe("2026-12-01");
   });
 
   it("greens are always the last g remaining sessions", () => {

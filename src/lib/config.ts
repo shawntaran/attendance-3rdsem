@@ -90,10 +90,18 @@ export interface Week {
   to: string;
 }
 
-/** Days rendered in the grid with a fixed note instead of classes. */
+/**
+ * Days with no classes whatever the timetable says, and the note shown on
+ * them. Unlike the holidays setting these are fixed: the academic year ends
+ * on 1 Dec, and Sat 5 Dec (an extra working day) is the only teaching day
+ * after it. They win over an extra working day on the same date.
+ */
 export const FIXED_MUTED_DAYS: Record<string, string> = {
   "2026-11-09": "Non-instructional day",
   "2026-11-10": "Deepavali holiday",
+  "2026-12-02": "No classes: term ended 1 Dec",
+  "2026-12-03": "No classes: term ended 1 Dec",
+  "2026-12-04": "No classes: term ended 1 Dec",
 };
 
 /** Extra holidays inside the window. Sessions on these dates are removed. */
