@@ -13,9 +13,10 @@ import {
   type PlanDiff,
   type PlanSession,
 } from "@/lib/plan";
-import { defaultState, loadState, saveState, type AppState } from "@/lib/storage";
+import { THEME_KEY, defaultState, type AppState } from "@/lib/storage";
 import { endLabel, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
 import { ColorKey } from "./ColorKey";
+import { ConflictBanner } from "./ConflictBanner";
 import { CourseTable } from "./CourseTable";
 import { DesktopGrid } from "./DesktopGrid";
 import { Glance } from "./Glance";
@@ -23,8 +24,10 @@ import { MobileDays } from "./MobileDays";
 import { odSummary } from "./OdSection";
 import { SessionDialog } from "./SessionDialog";
 import { SettingsDrawer } from "./SettingsDrawer";
+import { SyncIndicator } from "./SyncIndicator";
 import { Toast, type ToastData } from "./Toast";
 import { WeekTabs } from "./WeekTabs";
+import { usePlannerSync } from "./usePlannerSync";
 import { SettingsIcon } from "./icons";
 
 const DESKTOP_QUERY = "(min-width: 900px)";
@@ -63,8 +66,9 @@ function budgetMessage(changes: BudgetChange[]): string {
 }
 
 export function Planner() {
-  const [ready, setReady] = useState(false);
-  const [state, setState] = useState<AppState>(defaultState);
+  // State lives in the sync engine: cached on this device, kept in step with the cloud.
+  const sync = usePlannerSync();
+  const { ready, state, update: setState } = sync;
   const [today, setToday] = useState("2026-11-11");
   const [isDesktop, setIsDesktop] = useState(false);
   const [weekIndex, setWeekIndex] = useState(0);
@@ -78,34 +82,53 @@ export function Planner() {
   const counter = useRef(0);
   const settingsOpener = useRef<HTMLElement | null>(null);
 
-  // Everything that depends on the device (storage, date, width) is read after
-  // mount, so the server-rendered HTML never disagrees with the client.
+  // Everything that depends on the device (date, width) is read after mount,
+  // so the server-rendered HTML never disagrees with the client.
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("today");
     const now = isValidDate(param) ? param : localToday();
     const mq = window.matchMedia(DESKTOP_QUERY);
     const onChange = () => setIsDesktop(mq.matches);
-    const loaded = loadState();
-    setState(loaded);
     setToday(now);
-    setWeekIndex(initialWeek(computePlan({ ...loaded, today: now }).weeks, now));
     setIsDesktop(mq.matches);
-    setReady(true);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  // Open on the current week once the saved state has loaded.
+  const weekChosen = useRef(false);
   useEffect(() => {
-    if (ready) saveState(state);
-  }, [ready, state]);
+    if (!ready || weekChosen.current) return;
+    weekChosen.current = true;
+    setWeekIndex(initialWeek(computePlan({ ...state, today }).weeks, today));
+  }, [ready, state, today]);
 
-  // "system" leaves the attribute off, so the CSS media query decides.
+  // "system" leaves the attribute off, so the CSS media query decides. The
+  // choice is also kept in its own key for the script that runs before paint.
   useEffect(() => {
     if (!ready) return;
     const root = document.documentElement;
     if (state.settings.theme === "system") delete root.dataset.theme;
     else root.dataset.theme = state.settings.theme;
+    try {
+      window.localStorage.setItem(THEME_KEY, state.settings.theme);
+    } catch {
+      // storage blocked: the theme still applies after load
+    }
   }, [ready, state.settings.theme]);
+
+  // Another device changed something: the plan is already recomputed from the
+  // new state; drop the local undo (it would revert their change) and say so.
+  const seenRemote = useRef(0);
+  useEffect(() => {
+    if (sync.remoteRevision === seenRemote.current) return;
+    const first = seenRemote.current === 0 && !ready;
+    seenRemote.current = sync.remoteRevision;
+    if (first) return;
+    undoState.current = null;
+    counter.current += 1;
+    setToast({ key: counter.current, message: "Updated with changes from another device.", canUndo: false });
+  }, [sync.remoteRevision, ready]);
 
   const plan = useMemo(
     () => computePlan({ settings: state.settings, marks: state.marks, today }),
@@ -224,6 +247,9 @@ export function Planner() {
         <div className="min-w-0">
           <h1 className="font-display text-3xl leading-none font-bold desk:text-5xl">{week.label}</h1>
           <p className="mt-1.5 text-sm text-subtle desk:text-base">{weekRangeLabel(week)}</p>
+          <div className="mt-1 -ml-2">
+            <SyncIndicator status={sync.status} message={sync.message} onRetry={() => void sync.retry()} />
+          </div>
         </div>
         <div className="flex items-start gap-2 desk:gap-3">
           <div className="hidden text-right text-sm text-subtle desk:block">
@@ -259,6 +285,10 @@ export function Planner() {
       <p className="mt-1 text-xs text-subtle desk:hidden">
         {SECTION} · keep every course at {state.settings.targetPct}% till {end}
       </p>
+
+      {ready && sync.conflict && (
+        <ConflictBanner conflict={sync.conflict} onResolve={(choice) => void sync.resolveConflict(choice)} />
+      )}
 
       <div className="sticky top-0 z-20 -mx-3 mt-3 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:p-0">
         <WeekTabs weeks={weeks} selected={safeIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
