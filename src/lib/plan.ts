@@ -1,7 +1,9 @@
 // Rules engine. Pure functions, no React, no browser APIs.
 //
 // For each course independently:
-//   1. Sessions = timetable sessions in the window, minus holidays, minus dates
+//   1. Sessions = timetable sessions in the window (WINDOW_START to the
+//      windowEnd setting; extra working days run another weekday's
+//      timetable), minus holidays, minus dates
 //      on or before baselineAsOf (those are already inside the baseline).
 //   2. Walk them from the baseline (P present, H held). P is the portal figure
 //      plus the hours of every OD that is switched on and not already in the
@@ -18,15 +20,15 @@ import {
   COURSE_NAME,
   ODS,
   TIMETABLE,
-  WEEKS,
-  WINDOW_END,
   WINDOW_START,
   odAddsHours,
   type Baseline,
   type CourseCode,
+  type ExtraWorkingDay,
   type Settings,
+  type Week,
 } from "./config";
-import { dateRange, formatDate, weekdayIndex } from "./dates";
+import { addDays, dateRange, formatDate, weekdayIndex } from "./dates";
 
 export type Mark = "attended" | "skipped";
 export type Marks = Record<string, Mark>;
@@ -79,10 +81,14 @@ export interface CoursePlan {
 export interface Plan {
   today: string;
   targetPct: number;
+  /** Last day of the plan, inclusive. */
+  windowEnd: string;
+  /** Monday-based weeks covering the window. */
+  weeks: Week[];
   courses: CoursePlan[];
   byCourse: Record<CourseCode, CoursePlan>;
   byId: Record<string, PlanSession>;
-  /** Green (skip-ok) hours per week, in WEEKS order. */
+  /** Green (skip-ok) hours per week, in `weeks` order. */
   greenHoursByWeek: number[];
   totalGreenHours: number;
 }
@@ -98,9 +104,59 @@ export function sessionId(date: string, startPeriod: number): string {
   return `${date}@${startPeriod}`;
 }
 
-/** Index into WEEKS for a date, or -1 if it is outside every week. */
-export function weekIndexOf(date: string): number {
-  return WEEKS.findIndex((w) => date >= w.from && date <= w.to);
+type WindowSettings = Pick<Settings, "holidays" | "windowEnd" | "extraWorkingDays">;
+
+/** The extra working day on a date, if any. Holidays are not checked here. */
+export function extraWorkingDayOn(
+  settings: Pick<Settings, "extraWorkingDays">,
+  date: string,
+): ExtraWorkingDay | undefined {
+  return settings.extraWorkingDays.find((x) => x.date === date);
+}
+
+/**
+ * The weekday timetable (1 = Mon ... 5 = Fri) a date runs, or null for no
+ * classes. Order: holiday, then extra working day, then the normal weekday.
+ * Dates outside the window are not checked here.
+ */
+export function timetableDayFor(settings: WindowSettings, date: string): number | null {
+  if (settings.holidays.includes(date)) return null;
+  const extra = extraWorkingDayOn(settings, date);
+  if (extra) return extra.followsWeekday;
+  const wd = weekdayIndex(date);
+  return wd >= 1 && wd <= 5 ? wd : null;
+}
+
+/** True for a date that would have classes if it were not a holiday. */
+function isTeachingDate(settings: Pick<Settings, "extraWorkingDays">, date: string): boolean {
+  const wd = weekdayIndex(date);
+  return (wd >= 1 && wd <= 5) || !!extraWorkingDayOn(settings, date);
+}
+
+/**
+ * Monday-based weeks from WINDOW_START to windowEnd. A week's from/to are its
+ * first and last teaching dates inside the window; weeks without any are left out.
+ */
+export function buildWeeks(settings: Pick<Settings, "windowEnd" | "extraWorkingDays">): Week[] {
+  const weeks: Week[] = [];
+  if (settings.windowEnd < WINDOW_START) return weeks;
+  let monday = addDays(WINDOW_START, -((weekdayIndex(WINDOW_START) + 6) % 7));
+  while (monday <= settings.windowEnd) {
+    const days = dateRange(monday, addDays(monday, 6)).filter(
+      (d) => d >= WINDOW_START && d <= settings.windowEnd && isTeachingDate(settings, d),
+    );
+    if (days.length > 0) {
+      const id = weeks.length + 1;
+      weeks.push({ id, label: `Week ${id}`, monday, from: days[0], to: days[days.length - 1] });
+    }
+    monday = addDays(monday, 7);
+  }
+  return weeks;
+}
+
+/** Index into `weeks` for a date, or -1 if it is outside every week. */
+export function weekIndexOf(weeks: Week[], date: string): number {
+  return weeks.findIndex((w) => date >= w.monday && date <= addDays(w.monday, 6));
 }
 
 function pct(present: number, held: number): number {
@@ -120,14 +176,14 @@ interface RawSession {
 }
 
 /** Step 1 for all courses at once: every plannable session, in time order. */
-export function listSessions(settings: Pick<Settings, "holidays" | "baselineAsOf">): RawSession[] {
-  const holidays = new Set(settings.holidays);
+export function listSessions(settings: WindowSettings & Pick<Settings, "baselineAsOf">): RawSession[] {
   const out: RawSession[] = [];
-  for (const date of dateRange(WINDOW_START, WINDOW_END)) {
+  if (settings.windowEnd < WINDOW_START) return out;
+  for (const date of dateRange(WINDOW_START, settings.windowEnd)) {
     if (date <= settings.baselineAsOf) continue;
-    if (holidays.has(date)) continue;
-    const slots = TIMETABLE[weekdayIndex(date)];
-    if (!slots) continue; // weekend
+    const day = timetableDayFor(settings, date);
+    if (day === null) continue; // holiday or weekend
+    const slots = TIMETABLE[day];
     for (const slot of [...slots].sort((a, b) => a.startPeriod - b.startPeriod)) {
       out.push({
         id: sessionId(date, slot.startPeriod),
@@ -243,11 +299,12 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
     });
   }
 
-  const greenHoursByWeek = WEEKS.map(() => 0);
+  const weeks = buildWeeks(settings);
+  const greenHoursByWeek = weeks.map(() => 0);
   for (const c of courses) {
     for (const s of c.remaining) {
       if (s.status !== "skip-ok") continue;
-      const w = weekIndexOf(s.date);
+      const w = weekIndexOf(weeks, s.date);
       if (w >= 0) greenHoursByWeek[w] += s.span;
     }
   }
@@ -255,6 +312,8 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
   return {
     today,
     targetPct: settings.targetPct,
+    windowEnd: settings.windowEnd,
+    weeks,
     courses,
     byCourse: Object.fromEntries(courses.map((c) => [c.code, c])) as Record<CourseCode, CoursePlan>,
     byId,
@@ -281,7 +340,7 @@ export interface SkipMove {
   from: string;
   /** Session id that became green instead. */
   to: string;
-  /** "Comp Org & Arch: skip moved from Tue 1 Dec to Wed 11 Nov" */
+  /** "Comp Org & Arch: skip moved from Fri 4 Dec to Wed 11 Nov" */
   message: string;
 }
 

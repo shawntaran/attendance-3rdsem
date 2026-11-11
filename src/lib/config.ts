@@ -45,33 +45,55 @@ export const SECTION = "3CSE02";
 
 // ---- Window and weeks ------------------------------------------------------
 
+/** First day of the plan. The last day is a setting (`windowEnd`). */
 export const WINDOW_START = "2026-11-11";
-export const WINDOW_END = "2026-12-01";
+export const DEFAULT_WINDOW_END = "2026-12-05";
+/** Furthest "Plan until" date the settings accept. */
+export const MAX_WINDOW_END = "2027-06-30";
+
+export type TimetableWeekday = 1 | 2 | 3 | 4 | 5;
+
+export const WEEKDAY_NAME: Record<TimetableWeekday, string> = {
+  1: "Monday",
+  2: "Tuesday",
+  3: "Wednesday",
+  4: "Thursday",
+  5: "Friday",
+};
+
+export const WEEKDAY_SHORT: Record<TimetableWeekday, string> = {
+  1: "Mon",
+  2: "Tue",
+  3: "Wed",
+  4: "Thu",
+  5: "Fri",
+};
+
+/** A day that runs another weekday's timetable, e.g. a Saturday make-up day. */
+export interface ExtraWorkingDay {
+  date: string;
+  followsWeekday: TimetableWeekday;
+  reason: string;
+}
+
+export const DEFAULT_EXTRA_WORKING_DAYS: ExtraWorkingDay[] = [
+  { date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" },
+];
 
 export interface Week {
   id: number;
   label: string;
-  /** Monday of the week; the grid always renders Mon to Fri. */
+  /** Monday of the week. */
   monday: string;
-  /** First and last date of the week that fall inside the window. */
+  /** First and last teaching date of the week inside the window. */
   from: string;
   to: string;
 }
 
-export const WEEKS: Week[] = [
-  { id: 1, label: "Week 1", monday: "2026-11-09", from: "2026-11-11", to: "2026-11-13" },
-  { id: 2, label: "Week 2", monday: "2026-11-16", from: "2026-11-16", to: "2026-11-20" },
-  { id: 3, label: "Week 3", monday: "2026-11-23", from: "2026-11-23", to: "2026-11-27" },
-  { id: 4, label: "Week 4", monday: "2026-11-30", from: "2026-11-30", to: "2026-12-01" },
-];
-
-/** Days rendered in the grid but with no classes, and the note shown on them. */
+/** Days rendered in the grid with a fixed note instead of classes. */
 export const FIXED_MUTED_DAYS: Record<string, string> = {
   "2026-11-09": "Non-instructional day",
   "2026-11-10": "Deepavali holiday",
-  "2026-12-02": "After 1 Dec",
-  "2026-12-03": "After 1 Dec",
-  "2026-12-04": "After 1 Dec",
 };
 
 /** Extra holidays inside the window. Sessions on these dates are removed. */
@@ -311,6 +333,10 @@ export interface Settings {
   cushionHours: number;
   /** Sessions on or before this date are already inside the baseline. */
   baselineAsOf: string;
+  /** Last day of the plan, inclusive. */
+  windowEnd: string;
+  /** Days that run another weekday's timetable. A holiday on the same date wins. */
+  extraWorkingDays: ExtraWorkingDay[];
   /** Portal attendance, ODs not included. */
   baseline: Baseline;
   /** Which ODs to count as present. */
@@ -327,6 +353,8 @@ export function defaultSettings(): Settings {
     targetPct: DEFAULT_TARGET_PCT,
     cushionHours: DEFAULT_CUSHION_HOURS,
     baselineAsOf: BASELINE_AS_OF,
+    windowEnd: DEFAULT_WINDOW_END,
+    extraWorkingDays: structuredClone(DEFAULT_EXTRA_WORKING_DAYS),
     baseline: structuredClone(PORTAL_BASELINE),
     odState: odStateAll(true),
     holidays: [...DEFAULT_HOLIDAYS],

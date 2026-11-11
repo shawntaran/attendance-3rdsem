@@ -11,6 +11,7 @@ import {
   type Settings,
 } from "./config";
 import {
+  buildWeeks,
   computePlan,
   countedOdHours,
   diffBudgets,
@@ -39,12 +40,25 @@ function only(...ids: string[]): OdState {
   return state;
 }
 
+/**
+ * The plan as it was before Sat 5 Dec was added: window to 1 Dec, no extra
+ * working days. The older suites run on this, so they double as the
+ * regression check that the new window logic changes nothing else.
+ */
+const OLD_WINDOW: Partial<Settings> = { windowEnd: "2026-12-01", extraWorkingDays: [] };
+
+/** The current defaults: window to 5 Dec with the Saturday make-up day. */
+const NEW_WINDOW: Partial<Settings> = {
+  windowEnd: defaultSettings().windowEnd,
+  extraWorkingDays: defaultSettings().extraWorkingDays,
+};
+
 function plan(
   opts: { scenario?: Scenario; ods?: OdState; today?: string; marks?: Marks; extra?: Partial<Settings> } = {},
 ): Plan {
   const odState = opts.ods ?? odStateAll(opts.scenario !== "odsPending");
   return computePlan({
-    settings: { ...defaultSettings(), odState, ...opts.extra },
+    settings: { ...defaultSettings(), ...OLD_WINDOW, odState, ...opts.extra },
     marks: opts.marks ?? {},
     today: opts.today ?? "2026-11-11",
   });
@@ -73,7 +87,7 @@ function d(...days: (number | "1 Dec")[]): string[] {
 
 describe("sessions", () => {
   it("lists only weekdays inside the window, after the baseline", () => {
-    const all = listSessions(defaultSettings());
+    const all = listSessions({ ...defaultSettings(), ...OLD_WINDOW });
     const dates = [...new Set(all.map((s) => s.date))];
     expect(dates).toEqual([
       ...d(11, 12, 13, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 30),
@@ -393,5 +407,143 @@ describe("on-duty leaves", () => {
       { course: "CSE2258", courseName: "Web Tech", before: 6, after: 5 },
     ]);
     expect(diffBudgets(before, before)).toEqual([]);
+  });
+});
+
+describe("plan window to 5 Dec with Sat 5 Dec on Monday's timetable", () => {
+  const p = plan({ extra: NEW_WINDOW });
+  const sessions = (q: Plan) => COURSE_CODES.map((c) => q.byCourse[c].remaining.length);
+
+  it("defaults are window to 5 Dec plus the Saturday make-up day", () => {
+    expect(defaultSettings().windowEnd).toBe("2026-12-05");
+    expect(defaultSettings().extraWorkingDays).toEqual([
+      { date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" },
+    ]);
+  });
+
+  it("regression: the old window reproduces the old numbers exactly", () => {
+    const old = plan({ extra: OLD_WINDOW });
+    expect(budgetList(old)).toEqual([8, 5, 5, 2, 8, 5, 5, 5, 6, 6, 5]);
+    expect(greenCounts(old)).toEqual([8, 2, 2, 1, 8, 5, 5, 5, 6, 3, 2]);
+    expect(old.greenHoursByWeek).toEqual([4, 13, 29, 11]);
+  });
+
+  it("remaining hours and sessions per course", () => {
+    expect(COURSE_CODES.map((c) => p.byCourse[c].remainingHours)).toEqual([11, 6, 8, 8, 11, 11, 16, 11, 11, 8, 8]);
+    expect(sessions(p)).toEqual([11, 3, 4, 4, 11, 11, 16, 11, 11, 4, 4]);
+  });
+
+  it("budgets and green counts", () => {
+    expect(budgetList(p)).toEqual([9, 5, 6, 2, 8, 6, 6, 6, 7, 7, 6]);
+    expect(greenCounts(p)).toEqual([9, 2, 3, 1, 8, 6, 6, 6, 7, 3, 3]);
+  });
+
+  it("green hours per week", () => {
+    expect(p.greenHoursByWeek).toEqual([0, 10, 23, 33]);
+    expect(p.totalGreenHours).toBe(66);
+  });
+
+  it("green dates", () => {
+    expect(greens(p, "CSE2254")).toEqual(["2026-11-23", "2026-11-30", "2026-12-05"]);
+    expect(greens(p, "CSE2255")).toEqual([
+      "2026-11-24",
+      "2026-11-25",
+      "2026-11-30",
+      "2026-12-01",
+      "2026-12-02",
+      "2026-12-05",
+    ]);
+    expect(greens(p, "MAT2303")).toEqual([
+      "2026-11-27",
+      "2026-11-30",
+      "2026-12-02",
+      "2026-12-03",
+      "2026-12-04",
+      "2026-12-05",
+    ]);
+  });
+
+  it("all ODs off", () => {
+    const off = plan({ ods: odStateAll(false), extra: NEW_WINDOW });
+    expect(budgetList(off)).toEqual([5, 3, 0, 0, 4, 2, 0, 4, 3, 2, 6]);
+    expect(greenCounts(off)).toEqual([5, 1, 0, 0, 4, 2, 0, 4, 3, 1, 3]);
+    expect(off.greenHoursByWeek).toEqual([0, 0, 5, 23]);
+  });
+
+  it("Sat 5 Dec runs exactly Monday's timetable", () => {
+    const sat = Object.values(p.byId)
+      .filter((s) => s.date === "2026-12-05")
+      .sort((a, b) => a.startPeriod - b.startPeriod)
+      .map((s) => [s.course, s.startPeriod, s.span]);
+    expect(sat).toEqual([
+      ["MAT2303", 1, 1],
+      ["CSE2255", 2, 1],
+      ["CSE2254", 3, 2],
+    ]);
+    // Session ids keep the usual shape, so marks work on it.
+    expect(p.byId["2026-12-05@3"].course).toBe("CSE2254");
+  });
+
+  it("weeks: still 4, the last one runs Mon 30 Nov to Sat 5 Dec", () => {
+    expect(p.weeks.map((w) => [w.label, w.monday, w.from, w.to])).toEqual([
+      ["Week 1", "2026-11-09", "2026-11-11", "2026-11-13"],
+      ["Week 2", "2026-11-16", "2026-11-16", "2026-11-20"],
+      ["Week 3", "2026-11-23", "2026-11-23", "2026-11-27"],
+      ["Week 4", "2026-11-30", "2026-11-30", "2026-12-05"],
+    ]);
+  });
+
+  it("weeks follow windowEnd", () => {
+    const weeks = (windowEnd: string) =>
+      buildWeeks({ windowEnd, extraWorkingDays: NEW_WINDOW.extraWorkingDays! }).map((w) => [w.from, w.to]);
+    expect(weeks("2026-12-01").at(-1)).toEqual(["2026-11-30", "2026-12-01"]);
+    expect(weeks("2026-11-20")).toHaveLength(2);
+    expect(weeks("2026-12-11")).toHaveLength(5);
+    expect(weeks("2026-12-11").at(-1)).toEqual(["2026-12-07", "2026-12-11"]);
+    // Ending on a Sunday adds no empty week.
+    expect(weeks("2026-12-06")).toHaveLength(4);
+  });
+
+  it("a holiday on the Saturday removes its sessions", () => {
+    const q = plan({ extra: { ...NEW_WINDOW, holidays: ["2026-12-05"] } });
+    expect(Object.values(q.byId).filter((s) => s.date === "2026-12-05")).toEqual([]);
+    expect(q.byCourse.MAT2303.remainingHours).toBe(15);
+  });
+
+  it("an extra working day on a weekday overrides that weekday's timetable", () => {
+    // Wed 2 Dec runs Friday's timetable instead of Wednesday's.
+    const q = plan({
+      extra: {
+        windowEnd: "2026-12-05",
+        extraWorkingDays: [{ date: "2026-12-02", followsWeekday: 5, reason: "Swap" }],
+      },
+    });
+    const wed = Object.values(q.byId)
+      .filter((s) => s.date === "2026-12-02")
+      .sort((a, b) => a.startPeriod - b.startPeriod)
+      .map((s) => s.course);
+    expect(wed).toEqual(["CSE2257", "CSE2251", "CSE2259", "CSE2253", "CSE2258", "MAT2303"]);
+    expect(q.byId["2026-12-02@1"].span).toBe(1); // not Aptitude's 2-period slot
+  });
+
+  it("an extra working day outside the window adds nothing", () => {
+    const q = plan({
+      extra: { windowEnd: "2026-12-04", extraWorkingDays: NEW_WINDOW.extraWorkingDays },
+    });
+    expect(q.byId["2026-12-05@1"]).toBeUndefined();
+    expect(q.weeks.at(-1)?.to).toBe("2026-12-04");
+  });
+
+  it("greens are always the last g remaining sessions", () => {
+    for (const ods of [odStateAll(true), odStateAll(false), allExcept("od-2026-10-30")]) {
+      for (const today of ["2026-11-11", "2026-11-25", "2026-12-03"]) {
+        const q = plan({ ods, today, extra: NEW_WINDOW, marks: { "2026-12-05@1": "skipped" } });
+        for (const c of q.courses) {
+          const g = Math.min(c.remaining.length, Math.floor(c.budgetHours / c.span));
+          const expected = c.remaining.map((_, i) => (i >= c.remaining.length - g ? "skip-ok" : "attend"));
+          expect(c.remaining.map((s) => s.status)).toEqual(expected);
+        }
+      }
+    }
   });
 });
