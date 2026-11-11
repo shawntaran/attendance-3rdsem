@@ -1,18 +1,20 @@
 # Skip Planner
 
-A mobile-first web app for section 3CSE02 that answers one question for every class between
-11 Nov and 1 Dec 2026: **can I skip this, or do I have to go?** The goal is to finish every one
-of the 11 courses at 75% attendance or more on 1 Dec 2026.
+A mobile-first web app for section 3CSE02 that answers one question for every class in the plan
+window (11 Nov to 5 Dec 2026 by default): **can I skip this, or do I have to go?** The goal is to
+finish every one of the 11 courses at 75% attendance or more on the last day of the window.
 
 - One timetable per week. Each class is green ("Can skip") or red ("Attend").
 - Tap a class to say "I attended this" or "I skipped this". The plan recalculates at once and a
   toast tells you what moved, with an Undo.
 - A live table shows, per course: attendance now, skippable hours left, skips used, and the
   final % if you skip every green class.
+- The window's last day ("Plan until") and extra working days, such as Sat 5 Dec running Monday's
+  timetable, are settings. Week tabs, dates and labels follow them.
 - A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
   combination and see the skip budget change at once.
 - No backend, no database, no environment variables. Everything is saved in your browser's
-  `localStorage` under the key `skip-planner:v2`.
+  `localStorage` under the key `skip-planner:v3`.
 - Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
 
@@ -37,9 +39,12 @@ The engine is in [`src/lib/plan.ts`](src/lib/plan.ts): pure functions, no React.
 `Record<sessionId, 'attended' | 'skipped'>`, and a session id is `${date}@${startPeriod}`.
 Labs and aptitude span 2 periods and count as 2 hours.
 
-1. **Sessions.** Take every timetable session of the course in the window (2026-11-11 to
-   2026-12-01, weekdays), remove holidays, remove dates on or before `baselineAsOf` (those are
-   already inside the baseline), and sort by date and period.
+1. **Sessions.** Take every timetable session of the course in the window (`WINDOW_START`
+   2026-11-11 to the `windowEnd` setting, default 2026-12-05), remove dates on or before
+   `baselineAsOf` (those are already inside the baseline), and sort by date and period. Which
+   timetable a date runs, in this order: a holiday has none; an extra working day runs the weekday
+   it follows (this also overrides a normal weekday); Monday to Friday run their own; weekends
+   have none. See [Plan window](#plan-window-and-extra-working-days).
 2. **Walk them.** Start with `P` = baseline present hours and `H` = baseline held hours (see
    [On-duty leaves](#on-duty-leaves-od) for how `P` is built from the portal figure). For each
    session the effective status is its mark; with no mark it is "attended (assumed)" if the date
@@ -74,7 +79,7 @@ What follows from that:
   be more than the hours that are left.
 
 `diffPlans(before, after)` compares two plans and reports moved skips per course (for example
-"Comp Org & Arch: skip moved from Tue 1 Dec to Wed 11 Nov"). `diffBudgets(before, after)` lists
+"Comp Org & Arch: skip moved from Fri 4 Dec to Wed 11 Nov"). `diffBudgets(before, after)` lists
 the courses whose `budgetHours` changed. The toasts use both.
 
 Dates are plain `YYYY-MM-DD` strings throughout. The code never calls `new Date("YYYY-MM-DD")`,
@@ -115,12 +120,35 @@ box. "Count all" and "Count none" flip every switch. Each change shows a toast s
 "Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0" with an Undo, and the allowance table
 shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in it.
 
-### Saved state and the v1 migration
+## Plan window and extra working days
 
-State is saved under `skip-planner:v2`. A browser that only has the old `skip-planner:v1` state is
-migrated on first load: marks, target, cushion, holidays and theme are kept; the old scenario
-becomes all ODs on ("ODs granted") or all off ("ODs pending"); the baseline is reset to the portal
-defaults; then the v1 key is removed. Anything that fails validation falls back to the defaults.
+- **Start:** `WINDOW_START`, 2026-11-11, fixed in [`src/lib/config.ts`](src/lib/config.ts).
+- **End:** the `windowEnd` setting, **Settings > Plan until**. Default 2026-12-05. The header
+  ("till 5 Dec"), color key, allowance table and popover texts all use it.
+- **Extra working days:** `extraWorkingDays`, a list of `{ date, followsWeekday, reason }`, edited
+  in **Settings > Extra working days**. The default is Sat 5 Dec following Monday's timetable
+  (MAT2303 period 1, CSE2255 period 2, CSE2254 periods 3 to 4), the make-up for the Mon 9 Nov
+  holiday. A day must be inside the window and not a Sunday. A holiday on the same date wins.
+  A listed day that falls outside the window after "Plan until" moves is kept but ignored.
+
+Weeks are built from the window, Monday-based, so tabs appear or disappear when "Plan until"
+moves. A week shows Monday to Friday, plus a Saturday row only when that Saturday is an extra
+working day; Sunday is never shown. Days in a shown week but outside the window are muted
+"Outside plan". Session ids stay `${date}@${startPeriod}`, so marks keep working. The rules are
+unchanged: a longer window just means more remaining hours, which raises some budgets.
+
+## Saved state and migrations
+
+State is saved under `skip-planner:v3`. On first load, a browser with only an older state is
+migrated, the new state is saved as v3 and the old key is removed:
+
+- **v2** (OD switches, no window settings): everything is kept; `windowEnd` and
+  `extraWorkingDays` get the defaults.
+- **v1** (the old "ODs granted / pending" scenario): marks, target, cushion, holidays and theme are
+  kept; the scenario becomes all ODs on or all off; the baseline is reset to the portal defaults;
+  the window settings get the defaults.
+
+Anything that fails validation falls back to the defaults.
 
 ## Updating the baseline after a new attendance export
 
@@ -204,7 +232,7 @@ src/lib/config.ts     window, periods, timetable, courses, portal baseline, ODs,
 src/lib/plan.ts       rules engine: computePlan, diffPlans, diffBudgets
 src/lib/plan.test.ts  engine tests, including the fixture numbers
 src/lib/dates.ts      YYYY-MM-DD helpers (no timezone traps)
-src/lib/storage.ts    localStorage load, validate, save, v1 to v2 migration
+src/lib/storage.ts    localStorage load, validate, save, v1/v2 to v3 migration
 src/lib/view.ts       labels and text shared by the views
 src/components/       Planner, DesktopGrid, MobileDays, SessionDialog, SettingsDrawer, ...
 src/app/              layout (fonts, metadata), page, manifest
