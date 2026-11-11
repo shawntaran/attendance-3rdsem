@@ -236,9 +236,8 @@ export const ODS: OdLeave[] = [
   {
     id: "od-2026-09-04",
     date: "2026-09-04",
-    reason: "Aptitude hours, OD not confirmed",
-    unconfirmed: true,
-    hours: { APT4002: 2 },
+    reason: "SIH orientation",
+    hours: { APT4002: 2, CSE2257: 1 },
   },
   {
     id: "od-2026-09-15",

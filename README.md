@@ -94,7 +94,7 @@ The app keeps two things apart:
   them on `baselineAsOf` (DL counted as present, SUS excluded). An OD the portal has not approved
   yet is still an absence in these numbers. Defaults: `PORTAL_BASELINE` in
   [`src/lib/config.ts`](src/lib/config.ts), as of 2026-11-10.
-- **ODs.** The 10 on-duty leaves in `ODS` (39 hours in total). Each lists, per course, the absent
+- **ODs.** The 10 on-duty leaves in `ODS` (40 hours in total). Each lists, per course, the absent
   hours in the baseline that it would turn into present hours.
 
 Each OD has two flags, saved as `odState[odId] = { on, inPortal }`:

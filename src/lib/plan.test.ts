@@ -119,7 +119,7 @@ describe("all ODs on (old odsGranted), today 2026-11-11, no marks", () => {
     ["CSE2252", 5, d(24, "1 Dec")],
     ["APT4002", 5, d(18, 25)],
     ["CSE2259", 2, d(27)],
-    ["CSE2257", 8, d(13, 17, 18, 20, 24, 25, 27, "1 Dec")],
+    ["CSE2257", 9, d(11, 13, 17, 18, 20, 24, 25, 27, "1 Dec")],
     ["CSE2253", 5, d(20, 24, 26, 27, "1 Dec")],
     ["MAT2303", 5, d(23, 25, 26, 27, 30)],
     ["CSE2255", 5, d(23, 24, 25, 30, "1 Dec")],
@@ -134,8 +134,8 @@ describe("all ODs on (old odsGranted), today 2026-11-11, no marks", () => {
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([4, 13, 29, 11]);
-    expect(p.totalGreenHours).toBe(57);
+    expect(p.greenHoursByWeek).toEqual([5, 13, 29, 11]);
+    expect(p.totalGreenHours).toBe(58);
   });
 
   it("every course still finishes at or above target if all greens are skipped", () => {
@@ -177,20 +177,33 @@ describe("events (all ODs on, today 2026-11-11)", () => {
   const before = plan();
 
   it("attending a green session moves its skip to the nearest earlier red one", () => {
-    const after = plan({ marks: { "2026-12-01@1": "attended" } });
-    const c = after.byCourse.CSE2257;
+    // Data Comm & Networks: Thu 12 Nov is red, every later session is green.
+    expect(before.byId["2026-11-12@3"].status).toBe("attend");
+    const after = plan({ marks: { "2026-12-01@6": "attended" } });
+    const c = after.byCourse.CSE2251;
     expect(c.budgetHours).toBe(8);
     expect(c.remaining).toHaveLength(8);
     expect(c.remaining.every((s) => s.status === "skip-ok")).toBe(true);
-    expect(after.byId["2026-11-11@3"].status).toBe("skip-ok");
-    expect(after.byId["2026-12-01@1"].status).toBe("attended");
+    expect(after.byId["2026-11-12@3"].status).toBe("skip-ok");
+    expect(after.byId["2026-12-01@6"].status).toBe("attended");
 
     const diff = diffPlans(before, after);
     expect(diff.moves).toHaveLength(1);
-    expect(diff.moves[0].message).toBe("Comp Org & Arch: skip moved from Tue 1 Dec to Wed 11 Nov");
+    expect(diff.moves[0].message).toBe("Data Comm & Networks: skip moved from Tue 1 Dec to Thu 12 Nov");
     expect(diff.lost).toEqual([]);
     expect(diff.gained).toEqual([]);
-    expect(diff.changedIds.sort()).toEqual(["2026-11-11@3", "2026-12-01@1"]);
+    expect(diff.changedIds.sort()).toEqual(["2026-11-12@3", "2026-12-01@6"]);
+  });
+
+  it("attending a green session when every session is green moves nothing", () => {
+    // Comp Org & Arch can skip all 9 remaining sessions, so there is no red one to take the skip.
+    expect(before.byCourse.CSE2257.remaining.every((s) => s.status === "skip-ok")).toBe(true);
+    const after = plan({ marks: { "2026-12-01@1": "attended" } });
+    expect(after.byCourse.CSE2257.budgetHours).toBe(8);
+    expect(after.byCourse.CSE2257.remaining.every((s) => s.status === "skip-ok")).toBe(true);
+    const diff = diffPlans(before, after);
+    expect(diff.moves).toEqual([]);
+    expect(diff.changedIds).toEqual(["2026-12-01@1"]);
   });
 
   it("attend MAT2303 Mon 30 Nov", () => {
@@ -240,10 +253,10 @@ describe("events (all ODs on, today 2026-11-11)", () => {
   });
 
   it("undoing a mark is the reverse diff", () => {
-    const marked = plan({ marks: { "2026-12-01@1": "attended" } });
+    const marked = plan({ marks: { "2026-12-01@6": "attended" } });
     const diff = diffPlans(marked, before);
     expect(diff.moves.map((m) => m.message)).toEqual([
-      "Comp Org & Arch: skip moved from Wed 11 Nov to Tue 1 Dec",
+      "Data Comm & Networks: skip moved from Thu 12 Nov to Tue 1 Dec",
     ]);
   });
 });
@@ -312,16 +325,17 @@ describe("settings", () => {
 });
 
 describe("on-duty leaves", () => {
-  it("has 10 ODs totalling 39 hours", () => {
+  it("has 10 ODs totalling 40 hours", () => {
     expect(ODS).toHaveLength(10);
-    expect(OD_TOTAL_HOURS).toBe(39);
+    expect(OD_TOTAL_HOURS).toBe(40);
     expect(new Set(ODS.map((od) => od.id)).size).toBe(10);
     expect(ODS.map((od) => od.date)).toEqual([...ODS.map((od) => od.date)].sort());
   });
 
   it("portal baseline plus every OD gives the old granted numbers", () => {
     const eff = effectiveBaseline({ baseline: PORTAL_BASELINE, odState: odStateAll(true) });
-    expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 34, 29, 32, 26, 31, 24, 20]);
+    // CSE2257 is 35, one above the old granted 34: the 4 Sep OD now covers its hour too.
+    expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 35, 29, 32, 26, 31, 24, 20]);
     // Held never changes.
     expect(COURSE_CODES.map((c) => eff[c][1])).toEqual(COURSE_CODES.map((c) => PORTAL_BASELINE[c][1]));
     // And with none it is the portal as is.
@@ -330,13 +344,13 @@ describe("on-duty leaves", () => {
 
   it("defaults count every OD", () => {
     const hours = countedOdHours(defaultSettings());
-    expect(COURSE_CODES.map((c) => hours[c])).toEqual([4, 2, 6, 2, 4, 4, 6, 2, 4, 5, 0]);
+    expect(COURSE_CODES.map((c) => hours[c])).toEqual([4, 2, 6, 2, 5, 4, 6, 2, 4, 5, 0]);
     expect(plan().byCourse.MAT2303.odHours).toBe(6);
     expect(plan({ scenario: "odsPending" }).byCourse.MAT2303.odHours).toBe(0);
   });
 
   it("all ODs on", () => {
-    expect(budgetList(plan({ ods: odStateAll(true) }))).toEqual([8, 5, 5, 2, 8, 5, 5, 5, 6, 6, 5]);
+    expect(budgetList(plan({ ods: odStateAll(true) }))).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 5]);
   });
 
   it("all ODs off", () => {
@@ -345,8 +359,8 @@ describe("on-duty leaves", () => {
 
   it("all on except od-2026-10-30", () => {
     const p = plan({ ods: allExcept("od-2026-10-30") });
-    expect(budgetList(p)).toEqual([7, 5, 5, 0, 7, 4, 4, 5, 5, 6, 5]);
-    expect(greenCounts(p)).toEqual([7, 2, 2, 0, 7, 4, 4, 5, 5, 3, 2]);
+    expect(budgetList(p)).toEqual([7, 5, 5, 0, 8, 4, 4, 5, 5, 6, 5]);
+    expect(greenCounts(p)).toEqual([7, 2, 2, 0, 8, 4, 4, 5, 5, 3, 2]);
   });
 
   it("only 08-12, 09-15, 09-16, 09-17, 09-24 on", () => {
@@ -401,7 +415,7 @@ describe("on-duty leaves", () => {
     expect(diffBudgets(before, after)).toEqual([
       { course: "CSE2251", courseName: "Data Comm & Networks", before: 8, after: 7 },
       { course: "CSE2259", courseName: "Web Tech Lab", before: 2, after: 0 },
-      { course: "CSE2257", courseName: "Comp Org & Arch", before: 8, after: 7 },
+      { course: "CSE2257", courseName: "Comp Org & Arch", before: 9, after: 8 },
       { course: "CSE2253", courseName: "Data Structures", before: 5, after: 4 },
       { course: "MAT2303", courseName: "Linear Algebra", before: 5, after: 4 },
       { course: "CSE2258", courseName: "Web Tech", before: 6, after: 5 },
@@ -423,9 +437,9 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
 
   it("regression: the old window reproduces the old numbers exactly", () => {
     const old = plan({ extra: OLD_WINDOW });
-    expect(budgetList(old)).toEqual([8, 5, 5, 2, 8, 5, 5, 5, 6, 6, 5]);
-    expect(greenCounts(old)).toEqual([8, 2, 2, 1, 8, 5, 5, 5, 6, 3, 2]);
-    expect(old.greenHoursByWeek).toEqual([4, 13, 29, 11]);
+    expect(budgetList(old)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 5]);
+    expect(greenCounts(old)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 6, 3, 2]);
+    expect(old.greenHoursByWeek).toEqual([5, 13, 29, 11]);
   });
 
   it("Wed 2 to Fri 4 Dec have no classes", () => {
@@ -441,13 +455,17 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
   });
 
   it("budgets and green counts", () => {
-    expect(budgetList(p)).toEqual([8, 5, 5, 2, 8, 5, 5, 5, 6, 6, 6]);
-    expect(greenCounts(p)).toEqual([8, 2, 2, 1, 8, 5, 5, 5, 6, 3, 3]);
+    expect(budgetList(p)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 6]);
+    expect(greenCounts(p)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 6, 3, 3]);
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([4, 13, 27, 15]);
-    expect(p.totalGreenHours).toBe(59);
+    expect(p.greenHoursByWeek).toEqual([5, 13, 27, 15]);
+    expect(p.totalGreenHours).toBe(60);
+  });
+
+  it("Comp Org & Arch can skip all 9 remaining sessions", () => {
+    expect(greens(p, "CSE2257")).toEqual([...d(11, 13, 17, 18, 20, 24, 25, 27), "2026-12-01"]);
   });
 
   it("green dates", () => {
