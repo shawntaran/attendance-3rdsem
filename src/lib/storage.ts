@@ -158,6 +158,24 @@ function parseMarks(v: unknown): Marks {
   return out;
 }
 
+/**
+ * Strict check of a v3 state that came from anywhere (the server, IndexedDB,
+ * a request body). Throws on anything that is not a complete, valid state.
+ */
+export function validateState(data: unknown): AppState {
+  if (!isObject(data)) throw new Error("root");
+  return { settings: parseSettings(data.settings), marks: parseMarks(data.marks) };
+}
+
+/** Same as validateState, but returns null instead of throwing. */
+export function tryValidateState(data: unknown): AppState | null {
+  try {
+    return validateState(data);
+  } catch {
+    return null;
+  }
+}
+
 /** Parse a stored v3 value. Returns the defaults on any error. */
 export function parseState(raw: string | null | undefined): AppState {
   if (!raw) return defaultState();
@@ -253,6 +271,47 @@ export function loadFrom(store: KeyValueStore): AppState {
   }
   return defaultState();
 }
+
+/** All the keys an older version of the app saved its state under. */
+export const LEGACY_KEYS = [STORAGE_KEY, STORAGE_KEY_V2, STORAGE_KEY_V1] as const;
+
+/**
+ * Read the state the localStorage-only versions of the app left behind,
+ * migrating v2 or v1 in memory. Unlike loadFrom this never writes or removes
+ * anything: the keys stay until the state is safely in the cloud.
+ */
+export function readLegacy(store: Pick<KeyValueStore, "getItem">): { state: AppState; key: string } | null {
+  const current = store.getItem(STORAGE_KEY);
+  if (current !== null) {
+    const state = tryParse(current);
+    if (state) return { state, key: STORAGE_KEY };
+  }
+  const older: [string, (raw: string | null) => AppState | null][] = [
+    [STORAGE_KEY_V2, migrateV2],
+    [STORAGE_KEY_V1, migrateV1],
+  ];
+  for (const [key, migrate] of older) {
+    const migrated = migrate(store.getItem(key));
+    if (migrated) return { state: migrated, key };
+  }
+  return null;
+}
+
+function tryParse(raw: string): AppState | null {
+  try {
+    return tryValidateState(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** Remove every legacy key. Only call this once the state is verified in the cloud. */
+export function clearLegacy(store: Pick<KeyValueStore, "removeItem">): void {
+  for (const key of LEGACY_KEYS) store.removeItem(key);
+}
+
+/** Theme only, read by the script in layout.tsx before first paint. */
+export const THEME_KEY = "skip-planner:theme";
 
 export function loadState(): AppState {
   try {
