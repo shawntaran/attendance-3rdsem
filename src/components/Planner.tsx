@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COURSE_NAME, ODS, SECTION, WEEKS, type OdState, type Settings } from "@/lib/config";
+import { COURSE_NAME, ODS, SECTION, type OdState, type Settings, type Week } from "@/lib/config";
 import { formatDate, isValidDate, localToday } from "@/lib/dates";
 import {
   computePlan,
@@ -14,7 +14,7 @@ import {
   type PlanSession,
 } from "@/lib/plan";
 import { defaultState, loadState, saveState, type AppState } from "@/lib/storage";
-import { END_LABEL, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
+import { endLabel, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
 import { ColorKey } from "./ColorKey";
 import { CourseTable } from "./CourseTable";
 import { DesktopGrid } from "./DesktopGrid";
@@ -31,9 +31,9 @@ const DESKTOP_QUERY = "(min-width: 900px)";
 const TOAST_MS = 8000;
 const PULSE_MS = 1600;
 
-function initialWeek(today: string): number {
-  const i = WEEKS.findIndex((w) => today <= w.to);
-  return i === -1 ? WEEKS.length - 1 : i;
+function initialWeek(weeks: Week[], today: string): number {
+  const i = weeks.findIndex((w) => today <= w.to);
+  return i === -1 ? Math.max(0, weeks.length - 1) : i;
 }
 
 function idDate(id: string): string {
@@ -85,9 +85,10 @@ export function Planner() {
     const now = isValidDate(param) ? param : localToday();
     const mq = window.matchMedia(DESKTOP_QUERY);
     const onChange = () => setIsDesktop(mq.matches);
-    setState(loadState());
+    const loaded = loadState();
+    setState(loaded);
     setToday(now);
-    setWeekIndex(initialWeek(now));
+    setWeekIndex(initialWeek(computePlan({ ...loaded, today: now }).weeks, now));
     setIsDesktop(mq.matches);
     setReady(true);
     mq.addEventListener("change", onChange);
@@ -206,7 +207,12 @@ export function Planner() {
     setState({ ...state, settings });
   }
 
-  const week = WEEKS[weekIndex];
+  // "Plan until" can remove weeks, so keep the selected tab in range.
+  const weeks = plan.weeks;
+  const safeIndex = Math.min(weekIndex, Math.max(0, weeks.length - 1));
+  // Never empty: windowEnd is at least WINDOW_START (a Wednesday), so week 1 always exists.
+  const week = weeks[safeIndex];
+  const end = endLabel(state.settings.windowEnd);
   const days = useMemo(() => weekDays(week, state.settings, plan), [week, state.settings, plan]);
   const openSession: PlanSession | undefined = open ? plan.byId[open.id] : undefined;
   const od = odSummary(state.settings.odState);
@@ -223,7 +229,7 @@ export function Planner() {
           <div className="hidden text-right text-sm text-subtle desk:block">
             <p>{SECTION} skip planner</p>
             <p>
-              Keep every course at {state.settings.targetPct}% or more till {END_LABEL}
+              Keep every course at {state.settings.targetPct}% or more till {end}
             </p>
           </div>
           <button
@@ -251,11 +257,11 @@ export function Planner() {
         </div>
       </header>
       <p className="mt-1 text-xs text-subtle desk:hidden">
-        {SECTION} · keep every course at {state.settings.targetPct}% till {END_LABEL}
+        {SECTION} · keep every course at {state.settings.targetPct}% till {end}
       </p>
 
       <div className="sticky top-0 z-20 -mx-3 mt-3 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:p-0">
-        <WeekTabs selected={weekIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
+        <WeekTabs weeks={weeks} selected={safeIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
       </div>
 
       {!ready ? (
@@ -276,7 +282,12 @@ export function Planner() {
           </div>
 
           <div className="mt-4 desk:mt-5">
-            <Glance greenHoursByWeek={plan.greenHoursByWeek} total={plan.totalGreenHours} selected={weekIndex} />
+            <Glance
+              weeks={weeks}
+              greenHoursByWeek={plan.greenHoursByWeek}
+              total={plan.totalGreenHours}
+              selected={safeIndex}
+            />
           </div>
 
           <div className="mt-4 grid gap-4 desk:mt-5 desk:grid-cols-[minmax(0,5fr)_minmax(0,8fr)] desk:items-start">

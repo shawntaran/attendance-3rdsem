@@ -1,14 +1,15 @@
-import { WEEKS } from "@/lib/config";
+import type { Week } from "@/lib/config";
 import { formatDayMonth } from "@/lib/dates";
 
 interface Props {
+  weeks: Week[];
   greenHoursByWeek: number[];
   total: number;
   selected: number;
 }
 
 /** "Plan at a glance": green (skippable) hours per week. */
-export function Glance({ greenHoursByWeek, total, selected }: Props) {
+export function Glance({ weeks, greenHoursByWeek, total, selected }: Props) {
   const max = Math.max(1, ...greenHoursByWeek);
   return (
     <section aria-labelledby="glance-title" className="rounded-xl border border-line bg-surface p-3 desk:p-4">
@@ -20,8 +21,11 @@ export function Glance({ greenHoursByWeek, total, selected }: Props) {
           <strong className="text-ink">{total} hrs</strong> skippable in total
         </p>
       </div>
-      <ul className="mt-2 grid grid-cols-4 gap-2 desk:gap-3">
-        {WEEKS.map((week, i) => (
+      <ul
+        className="mt-2 grid gap-2 desk:gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))" }}
+      >
+        {weeks.map((week, i) => (
           <li key={week.id} className={`rounded-lg px-2 py-1.5 ${i === selected ? "bg-empty" : ""}`}>
             <div className="flex items-baseline justify-between gap-1">
               <span className="text-xs font-semibold">

@@ -1,7 +1,7 @@
 import { COURSE_NAME, sessionTimes } from "@/lib/config";
 import { formatDayMonth, weekdayName } from "@/lib/dates";
 import type { PlanSession } from "@/lib/plan";
-import { STATUS_LABEL, cellAriaLabel, type DayView } from "@/lib/view";
+import { STATUS_LABEL, cellAriaLabel, extraChipLabel, extraSpoken, type DayView } from "@/lib/view";
 import { StatusIcon } from "./icons";
 
 interface Props {
@@ -32,14 +32,23 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
         const isToday = day.date === today;
         return (
           <section key={day.date} className="overflow-hidden rounded-xl border border-line bg-surface">
-            <h2 className="flex items-center gap-2 bg-raised px-3 py-2 text-white">
+            <h2 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-raised px-3 py-2 text-white">
               <span className="font-display text-lg font-bold">{weekdayName(day.date)}</span>
               <span className="text-sm">{formatDayMonth(day.date)}</span>
+              {day.extra && (
+                <span
+                  aria-label={extraSpoken(day.extra)}
+                  className="rounded-full border border-current px-1.5 py-px text-[11px] font-bold"
+                >
+                  {extraChipLabel(day.extra)}
+                </span>
+              )}
               {isToday && (
                 <span className="ml-auto rounded-full bg-today px-2 py-0.5 text-[11px] font-bold text-[#14202b]">
                   Today
                 </span>
               )}
+              {day.extra?.reason && <span className="w-full text-xs text-white/80">{day.extra.reason}</span>}
             </h2>
             <ul className="flex flex-col gap-1.5 p-1.5">
               {day.sessions.map((s) => {
@@ -50,7 +59,7 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
                       key={pulseIds.has(s.id) ? `${s.id}:${pulseKey}` : s.id}
                       type="button"
                       data-session-id={s.id}
-                      aria-label={cellAriaLabel(s)}
+                      aria-label={cellAriaLabel(s, day.extra)}
                       aria-haspopup="dialog"
                       onClick={(e) => onOpen(s, e.currentTarget)}
                       className={`cell-btn state-${s.status} flex min-h-14 w-full items-center gap-3 rounded-lg border-[1.5px] px-3 py-2 text-left ${

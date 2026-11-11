@@ -1,5 +1,5 @@
 import type { CoursePlan, Plan } from "@/lib/plan";
-import { fmtHours, fmtPct } from "@/lib/view";
+import { fmtHours, fmtPct, windowLabel } from "@/lib/view";
 import { AlertCircleIcon, ChevronDownIcon } from "./icons";
 
 function sorted(plan: Plan): CoursePlan[] {
@@ -70,7 +70,7 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-subtle">Skippable left</dt>
+                  <dt className="text-subtle">Can skip, {windowLabel(plan.windowEnd)}</dt>
                   <dd className="text-sm font-semibold tabular-nums">
                     {c.skippableHours} of {fmtHours(c.remainingHours)}
                   </dd>
@@ -103,7 +103,9 @@ export function CourseTable({ plan, isDesktop }: { plan: Plan; isDesktop: boolea
           <tr className="border-b border-line text-left text-xs text-subtle">
             <th scope="col" className="py-1.5 pr-3 font-semibold">Course</th>
             <th scope="col" className="px-3 py-1.5 text-right font-semibold">Now %</th>
-            <th scope="col" className="px-3 py-1.5 text-right font-semibold">Skippable hrs left</th>
+            <th scope="col" className="px-3 py-1.5 text-right font-semibold">
+              Can skip, {windowLabel(plan.windowEnd)}
+            </th>
             <th scope="col" className="px-3 py-1.5 text-right font-semibold">Skips used</th>
             <th scope="col" className="py-1.5 pl-3 text-right font-semibold">Final % if I skip all greens</th>
           </tr>

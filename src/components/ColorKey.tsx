@@ -1,7 +1,7 @@
 import { ODS, type Settings } from "@/lib/config";
 import { formatDayMonth } from "@/lib/dates";
 import type { SessionStatus } from "@/lib/plan";
-import { END_LABEL, STATUS_LABEL, fmtHours } from "@/lib/view";
+import { STATUS_LABEL, endLabel, fmtHours, windowLabel } from "@/lib/view";
 import { odSummary } from "./OdSection";
 import { StatusIcon } from "./icons";
 
@@ -18,12 +18,13 @@ function Swatch({ status }: { status: SessionStatus }) {
 
 export function ColorKey({ settings }: { settings: Settings }) {
   const t = settings.targetPct;
+  const end = endLabel(settings.windowEnd);
   const od = odSummary(settings.odState);
   const cushion =
     settings.cushionHours > 0 ? `, with ${fmtHours(settings.cushionHours).replace("hrs", "hours").replace("hr", "hour")} to spare` : "";
   const rows: [SessionStatus, string][] = [
-    ["skip-ok", `You can miss this class and still finish the course at ${t}% or more on ${END_LABEL}${cushion}.`],
-    ["attend", `Go. Skipping this one risks pushing the course under ${t}% by ${END_LABEL}.`],
+    ["skip-ok", `You can miss this class and still finish the course at ${t}% or more on ${end}${cushion}.`],
+    ["attend", `Go. Skipping this one risks pushing the course under ${t}% by ${end}.`],
     ["attended", "You went. Past days with no mark are assumed attended."],
     ["skipped", "You missed it. Its hours came out of that course's allowance."],
   ];
@@ -41,7 +42,7 @@ export function ColorKey({ settings }: { settings: Settings }) {
         ))}
         <li className="flex items-center gap-3">
           <span className="h-10 w-[104px] shrink-0 rounded-lg bg-muted" aria-hidden="true" />
-          <span>No class, a holiday, or outside the 11 Nov to {END_LABEL} plan.</span>
+          <span>No class, a holiday, or outside the {windowLabel(settings.windowEnd)} plan.</span>
         </li>
       </ul>
       <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-subtle">

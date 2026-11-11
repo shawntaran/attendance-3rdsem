@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   COURSES,
   THEME_LABEL,
-  WINDOW_END,
   WINDOW_START,
   type CourseCode,
   type OdState,
@@ -13,6 +12,7 @@ import {
 } from "@/lib/config";
 import { formatDate, isValidDate } from "@/lib/dates";
 import { OdSection } from "./OdSection";
+import { PlanWindowSection } from "./PlanWindowSection";
 import { CloseIcon } from "./icons";
 import { useModal } from "./useModal";
 
@@ -99,7 +99,7 @@ export function SettingsDrawer({
   const holidayOk =
     isValidDate(holidayDraft) &&
     holidayDraft >= WINDOW_START &&
-    holidayDraft <= WINDOW_END &&
+    holidayDraft <= settings.windowEnd &&
     !settings.holidays.includes(holidayDraft);
 
   return (
@@ -248,6 +248,8 @@ export function SettingsDrawer({
             </tbody>
           </table>
 
+          <PlanWindowSection settings={settings} inputCls={inputCls} onChange={onChange} />
+
           <h3 className="mt-6 text-sm font-bold">Holidays</h3>
           <p className="mt-0.5 text-xs text-subtle">Classes on these dates are removed from the plan.</p>
           {settings.holidays.length > 0 && (
@@ -272,7 +274,7 @@ export function SettingsDrawer({
               type="date"
               aria-label="Holiday date"
               min={WINDOW_START}
-              max={WINDOW_END}
+              max={settings.windowEnd}
               value={holidayDraft}
               onChange={(e) => setHolidayDraft(e.target.value)}
               className={inputCls}

@@ -1,7 +1,7 @@
 import { COURSE_NAME, PERIODS } from "@/lib/config";
 import { formatDayMonth, weekdayName } from "@/lib/dates";
 import type { PlanSession } from "@/lib/plan";
-import { STATUS_LABEL, cellAriaLabel, type DayView } from "@/lib/view";
+import { STATUS_LABEL, cellAriaLabel, extraChipLabel, extraSpoken, type DayView } from "@/lib/view";
 import { StatusIcon } from "./icons";
 
 // Grid columns: day | 1 | 2 | break | 3 | 4 | lunch | 6 | break | 7 | 8
@@ -34,7 +34,7 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
       style={{
         gridTemplateColumns:
           "minmax(92px, 1.05fr) repeat(2, minmax(0, 1fr)) 26px repeat(2, minmax(0, 1fr)) 36px minmax(0, 1fr) 26px repeat(2, minmax(0, 1fr))",
-        gridTemplateRows: "auto repeat(5, minmax(88px, auto))",
+        gridTemplateRows: `auto repeat(${days.length}, minmax(88px, auto))`,
       }}
     >
       {PERIODS.map((p) => (
@@ -57,7 +57,7 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
         <div
           key={band.column}
           className="flex items-center justify-center rounded-lg bg-band text-ink"
-          style={{ gridColumn: band.column, gridRow: "2 / span 5" }}
+          style={{ gridColumn: band.column, gridRow: `2 / span ${days.length}` }}
         >
           <span className="vertical-text text-[11px] font-semibold tracking-wide">{band.label}</span>
         </div>
@@ -81,6 +81,15 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
             >
               <div className="font-display text-xl leading-tight font-bold">{weekdayName(day.date)}</div>
               <div className="text-xs">{formatDayMonth(day.date)}</div>
+              {day.extra && (
+                <span
+                  title={day.extra.reason || undefined}
+                  aria-label={`${extraSpoken(day.extra)}${day.extra.reason ? `. ${day.extra.reason}` : ""}`}
+                  className="mt-1 w-fit rounded-full border border-current px-1.5 py-px text-[10px] leading-tight font-bold"
+                >
+                  {extraChipLabel(day.extra)}
+                </span>
+              )}
               {isToday && (
                 <span className="mt-1 w-fit rounded-full bg-today px-2 py-px text-[10px] font-bold text-[#14202b]">
                   Today
@@ -111,7 +120,7 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
                 key={pulseIds.has(s.id) ? `${s.id}:${pulseKey}` : s.id}
                 type="button"
                 data-session-id={s.id}
-                aria-label={cellAriaLabel(s)}
+                aria-label={cellAriaLabel(s, day.extra)}
                 aria-haspopup="dialog"
                 onClick={(e) => onOpen(s, e.currentTarget)}
                 className={`cell-btn state-${s.status} flex min-w-0 flex-col rounded-lg border-[1.5px] px-2 py-1.5 text-left ${
