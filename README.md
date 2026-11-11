@@ -13,8 +13,9 @@ finish every one of the 11 courses at 75% attendance or more on the last day of 
   timetable, are settings. Week tabs, dates and labels follow them.
 - A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
   combination and see the skip budget change at once.
-- No backend, no database, no environment variables. Everything is saved in your browser's
-  `localStorage` under the key `skip-planner:v3`.
+- Cloud sync: the same marks and settings on every device, through a Supabase database behind
+  this app's own API. No login: it is a single-user planner. It keeps working offline and syncs
+  when the connection is back. See [Cloud sync](#cloud-sync).
 - Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
 
@@ -142,10 +143,106 @@ working day; Sunday is never shown. Days in a shown week but outside the window 
 "Outside plan". Session ids stay `${date}@${startPeriod}`, so marks keep working. The rules are
 unchanged: a longer window just means more remaining hours, which raises some budgets.
 
+## Cloud sync
+
+### How it works
+
+```
+Browser (each device)                    Vercel (server)                Supabase
+-----------------------------            ---------------------          ------------------
+Planner UI                               /api/planner                   planner_state
+  usePlannerSync -> SyncEngine   <---->    GET: state + version   <-->    one row: state jsonb,
+  IndexedDB cache (this device)            PUT: state if version            version, updated_at
+                                           still matches (else 409)
+```
+
+- **The cloud is the source of truth.** One row in `planner_state` holds the whole `AppState`
+  (settings, ODs, baseline, plan window, marks) as JSON, plus a `version` number. The plan
+  itself is still computed in the browser by `computePlan()`; only the inputs are stored.
+- **The browser never talks to Supabase.** It calls `/api/planner` on this app. The route uses
+  the service-role key, which exists only on the server. The table has Row Level Security on
+  with no policies, so the public Supabase API cannot read or change it.
+- **No silent overwrites.** Every save sends the version it was based on. The server updates the
+  row only if the version still matches (one atomic `UPDATE ... WHERE version = n`) and sets
+  the new version itself; otherwise it answers 409 with what it has now. A database trigger also
+  refuses any update that does not move the version forward by exactly one.
+- **Local first.** On launch the app shows this device's cached copy (IndexedDB) at once, then
+  fetches the cloud copy and reconciles. Edits are cached immediately and sent after a 0.8 s
+  pause. Changes from other devices are picked up every 15 s while the tab is visible, and at
+  once when the tab comes back into view, the window gets focus or the network returns.
+- **Merging, not last-write-wins.** When the cloud moved on while this device had unsent changes,
+  the two are merged entry by entry: each attendance mark (by session id), each setting, each
+  baseline course, each OD, each holiday and each extra working day. Different entries combine
+  cleanly. Only the same entry changed differently on two devices is a conflict.
+- **Offline.** The planner keeps working; edits stay in IndexedDB as pending and are retried
+  (with backoff, and on reconnect). A failed save never drops them. When the page is closed with
+  changes pending, one last save is attempted; whether or not it lands, the change is still in the
+  cache and is reconciled on the next launch.
+
+The status next to the week title shows **Cloud synced**, **Saving...**, **Sync pending**,
+**Offline** or **Sync error** (tap it to retry; hover or long-press for the reason).
+
+### Conflicts and recovery
+
+- **Same entry changed on two devices:** the cloud value is used, everything else is merged, and a
+  banner lists what clashed. **Use this device's values** puts this device's values back and
+  saves them; **Keep the cloud copy** dismisses it.
+- **This device has different data from the cloud on its first sync** (for example two phones
+  both used the old local-only app): the cloud copy is shown and nothing is uploaded. The banner
+  offers **Keep the cloud copy** or **Use this device's copy**.
+- Both banners have **Download this device's copy**, which saves this device's version as a JSON
+  file, so nothing is lost whichever you choose. The device's copy also stays in IndexedDB until
+  you choose.
+- If the server ever reports a stored state that does not validate, the app shows **Sync error**
+  and never writes over it.
+
+### First launch after the upgrade (migrating from localStorage)
+
+1. The app reads the old `skip-planner:v3` (or v2/v1, migrated in memory with the existing
+   migrations). It does not delete anything yet.
+2. It asks the cloud. If there is **no record**, it uploads the local state, reads it back, and
+   only when the copy in the cloud matches exactly does it remove the old localStorage keys.
+3. If the cloud **already has the same state**, the old keys are removed. If it has a **different**
+   state, both are kept and the conflict banner asks which to use (see above).
+4. If the server cannot be reached or is not configured, the old keys stay and the app keeps
+   working from this device's cache; the upload happens on a later launch or retry.
+
+### Set up Supabase
+
+1. Create a project at [supabase.com](https://supabase.com) (the free tier is plenty).
+2. **SQL Editor** > **New query**: paste the contents of
+   [`supabase/migrations/0001_planner_state.sql`](supabase/migrations/0001_planner_state.sql)
+   and **Run**. It creates the `planner_state` table, the single-row and version checks, and locks
+   the table to the service role.
+3. **Project Settings** > **API**: copy the **Project URL** and the **service_role** key (under
+   "Project API keys"; it is secret).
+4. Locally: copy `.env.example` to `.env.local` and fill in both values. `.env.local` is
+   git-ignored.
+5. On Vercel: **Project** > **Settings** > **Environment Variables**, add `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` for Production (and Preview if you use it), then redeploy.
+   Never prefix them with `NEXT_PUBLIC_`.
+6. Open the app. The status should turn to **Cloud synced**, and your existing data is uploaded as
+   described above. Without the variables the API answers "not configured", the status shows
+   **Sync error**, and the app keeps everything on the device.
+
+You do not need to enable Realtime: sync works through the app's API.
+
+### Limitations
+
+- **The API has no login.** Anyone who knows the deployed URL can read and change the planner
+  through `/api/planner` (the database itself is locked). Keep the URL private.
+- Changes from another device appear within about 15 s while the tab is open, not instantly.
+- Two tabs on the same device share one cache. If one tab is closed within a second of an edit
+  while offline, that edit can be overwritten in the cache by the other tab (it is still sent if
+  the closing tab's last save got out).
+- Supabase pauses free projects after a week without activity; the app then shows **Sync error**
+  until the project is resumed from the dashboard, and keeps working on the device meanwhile.
+
 ## Saved state and migrations
 
-State is saved under `skip-planner:v3`. On first load, a browser with only an older state is
-migrated, the new state is saved as v3 and the old key is removed:
+The state is validated everywhere it enters: on the server for every save, in the browser for
+every server reply and for the IndexedDB cache. The pre-cloud app saved it in localStorage under
+`skip-planner:v3`; older versions are migrated in memory on first launch:
 
 - **v2** (OD switches, no window settings): everything is kept; `windowEnd` and
   `extraWorkingDays` get the defaults.
@@ -153,7 +250,8 @@ migrated, the new state is saved as v3 and the old key is removed:
   kept; the scenario becomes all ODs on or all off; the baseline is reset to the portal defaults;
   the window settings get the defaults.
 
-Anything that fails validation falls back to the defaults.
+Anything that fails validation is never used: a bad cache falls back to the cloud copy, a bad
+server reply is reported as **Sync error**.
 
 ## Updating the baseline after a new attendance export
 
@@ -182,8 +280,9 @@ Holidays work the same way: add them in **Settings > Holidays**, or put them in
 
 ## Deploy on Vercel
 
-The app is a standard Next.js project. Vercel detects the framework and needs no settings and no
-environment variables.
+The app is a standard Next.js project. Vercel detects the framework. For cloud sync it needs the
+two environment variables from [Set up Supabase](#set-up-supabase); without them it still builds
+and runs, keeping data on each device.
 
 ### With GitHub (recommended)
 
@@ -228,7 +327,7 @@ Open the deployed URL on the phone, then:
 - **Android (Chrome):** menu > **Add to Home screen** (or **Install app**).
 - **iPhone (Safari):** Share > **Add to Home Screen**.
 
-Your marks live in that browser on that device. They do not sync between devices.
+With Supabase set up, the phone and your laptop show the same planner.
 
 ## Project layout
 
@@ -237,7 +336,14 @@ src/lib/config.ts     window, periods, timetable, courses, portal baseline, ODs,
 src/lib/plan.ts       rules engine: computePlan, diffPlans, diffBudgets
 src/lib/plan.test.ts  engine tests, including the fixture numbers
 src/lib/dates.ts      YYYY-MM-DD helpers (no timezone traps)
-src/lib/storage.ts    localStorage load, validate, save, v1/v2 to v3 migration
+src/lib/storage.ts    validation, legacy localStorage read, v1/v2 to v3 migration
+src/lib/sync.ts       sync engine: reconcile (syncState), push, retry, conflicts
+src/lib/merge.ts      three-way merge of two states, entry by entry
+src/lib/remote.ts     client for /api/planner (loadRemoteState, saveRemoteState)
+src/lib/localCache.ts IndexedDB cache (loadLocalCache, saveLocalCache)
+src/lib/server/       API request handling and the Supabase repository (server only)
+src/app/api/planner/  the GET / PUT route
+supabase/migrations/  SQL for the planner_state table
 src/lib/view.ts       labels and text shared by the views
 src/components/       Planner, DesktopGrid, MobileDays, SessionDialog, SettingsDrawer, ...
 src/app/              layout (fonts, metadata), page, manifest
