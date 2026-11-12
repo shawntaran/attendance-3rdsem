@@ -28,6 +28,7 @@ export function flatten(state: AppState): Flat {
   const out: Flat = new Map();
   const s = state.settings;
   for (const key of SCALARS) out.set(`settings.${key}`, JSON.stringify(s[key]));
+  if (s.baselineRevision !== undefined) out.set("settings.baselineRevision", JSON.stringify(s.baselineRevision));
   for (const code of COURSE_CODES) out.set(`baseline/${code}`, JSON.stringify(s.baseline[code]));
   for (const [id, t] of Object.entries(s.odState)) out.set(`od/${id}`, JSON.stringify({ on: t.on, inPortal: t.inPortal }));
   for (const date of s.holidays) out.set(`holiday/${date}`, "true");

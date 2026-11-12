@@ -15,7 +15,7 @@
 
 import { applyLocalValues, mergeStates, statesEqual, type MergeConflict } from "./merge";
 import type { FailureKind, LoadResult, RemoteApi, RemoteRecord, SaveResult, SyncFailure } from "./remote";
-import { defaultState, type AppState } from "./storage";
+import { defaultState, migrateState, type AppState } from "./storage";
 
 export type SyncConflict =
   /** Whole states differ and cannot be merged (first launch, or the server was reset). */
@@ -39,6 +39,37 @@ export interface CacheRecord {
 
 export function newRecord(state: AppState, origin: CacheRecord["origin"], legacyKey: string | null = null): CacheRecord {
   return { schema: 1, state, base: null, baseVersion: 0, pending: false, origin, legacyKey, conflict: null };
+}
+
+/** Bring every copy in a record (shown, confirmed base, conflict copies) up to the current baseline revision. */
+export function migrateRecord(rec: CacheRecord): CacheRecord {
+  const conflict: SyncConflict | null =
+    rec.conflict === null
+      ? null
+      : rec.conflict.kind === "initial"
+        ? { ...rec.conflict, local: migrateState(rec.conflict.local), remote: migrateState(rec.conflict.remote) }
+        : { ...rec.conflict, local: migrateState(rec.conflict.local) };
+  return { ...rec, state: migrateState(rec.state), base: rec.base ? migrateState(rec.base) : null, conflict };
+}
+
+/**
+ * Reconcile against the cloud copy after migrating it, so a device that
+ * migrated and a cloud row that has not yet never look different just because
+ * of the baseline correction. If the cloud row itself is on an older revision,
+ * the confirmed base is set to the raw row, which makes the migrated values a
+ * normal pending change: they are pushed once and the row is upgraded.
+ */
+export function syncWithMigration(rec: CacheRecord, raw: RemoteRecord | null, now: string): SyncDecision {
+  if (raw === null) return syncState(rec, null, now);
+  const migrated: RemoteRecord = { ...raw, state: migrateState(raw.state) };
+  const decision = syncState(rec, migrated, now);
+  if (migrated.state === raw.state || decision.record.baseVersion !== raw.version) return decision;
+  const record: CacheRecord = {
+    ...decision.record,
+    base: raw.state,
+    pending: !statesEqual(decision.record.state, raw.state),
+  };
+  return { ...decision, record, push: decision.push || record.pending };
 }
 
 export interface SyncDecision {
@@ -249,10 +280,15 @@ export class SyncEngine {
     return this.run(async () => {
       const cached = await this.safeCacheLoad();
       if (cached) {
-        this.rec = cached;
+        // Apply any baseline correction at once, so the right numbers show
+        // and are cached even with sync locked, unconfigured or offline.
+        this.rec = migrateRecord(cached);
+        if (!statesEqual(this.rec.state, cached.state) || this.rec.base !== cached.base) await this.persist();
       } else {
         const legacy = this.deps.legacy.read();
-        this.rec = legacy ? newRecord(legacy.state, "legacy", legacy.key) : newRecord(defaultState(), "default");
+        this.rec = legacy
+          ? newRecord(migrateState(legacy.state), "legacy", legacy.key)
+          : newRecord(defaultState(), "default");
         await this.persist();
       }
       this.ready = true;
@@ -381,7 +417,7 @@ export class SyncEngine {
       return;
     }
     this.succeeded();
-    await this.apply(syncState(this.rec, result.record, this.now()));
+    await this.apply(syncWithMigration(this.rec, result.record, this.now()));
   }
 
   private async apply(decision: SyncDecision): Promise<void> {
@@ -409,7 +445,7 @@ export class SyncEngine {
 
       if (result.type === "conflict") {
         // Someone else saved first: merge with what they saved, then try again.
-        const decision = syncState(this.rec, result.current, this.now());
+        const decision = syncWithMigration(this.rec, result.current, this.now());
         this.rec = decision.record;
         if (decision.changedByRemote) this.remoteRevision++;
         if (decision.legacyVerified) this.clearLegacy();
@@ -440,7 +476,11 @@ export class SyncEngine {
     const check = await this.deps.remote.load();
     if (check.type !== "ok" || !check.record) return;
     const { record } = check;
-    if (record.version === this.rec.baseVersion && this.rec.base && statesEqual(record.state, this.rec.base)) {
+    if (
+      record.version === this.rec.baseVersion &&
+      this.rec.base &&
+      statesEqual(migrateState(record.state), this.rec.base)
+    ) {
       this.clearLegacy();
       await this.persist();
       this.emit();

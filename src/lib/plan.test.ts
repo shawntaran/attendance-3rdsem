@@ -123,7 +123,7 @@ describe("all ODs on (old odsGranted), today 2026-11-11, no marks", () => {
     ["CSE2253", 5, d(20, 24, 26, 27, "1 Dec")],
     ["MAT2303", 5, d(23, 25, 26, 27, 30)],
     ["CSE2255", 5, d(23, 24, 25, 30, "1 Dec")],
-    ["CSE2258", 6, d(19, 20, 24, 26, 27, "1 Dec")],
+    ["CSE2258", 7, d(17, 19, 20, 24, 26, 27, "1 Dec")],
     ["CSE2256", 6, d(12, 19, 26)],
     ["CSE2254", 5, d(23, 30)],
   ];
@@ -134,8 +134,8 @@ describe("all ODs on (old odsGranted), today 2026-11-11, no marks", () => {
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([5, 13, 29, 11]);
-    expect(p.totalGreenHours).toBe(58);
+    expect(p.greenHoursByWeek).toEqual([5, 14, 29, 11]);
+    expect(p.totalGreenHours).toBe(59);
   });
 
   it("every course still finishes at or above target if all greens are skipped", () => {
@@ -157,11 +157,11 @@ describe("all ODs off (old odsPending), today 2026-11-11, no marks", () => {
   const p = plan({ scenario: "odsPending" });
 
   it("budgets", () => {
-    expect(COURSE_CODES.map((c) => p.byCourse[c].budgetHours)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 2, 1, 5]);
+    expect(COURSE_CODES.map((c) => p.byCourse[c].budgetHours)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 5]);
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([0, 0, 10, 10]);
+    expect(p.greenHoursByWeek).toEqual([0, 0, 11, 10]);
   });
 
   it("green dates", () => {
@@ -317,9 +317,9 @@ describe("settings", () => {
 
   it("finalPctIfSkipping projects one extra skipped session", () => {
     const p = plan({ scenario: "odsPending" });
-    const c = p.byCourse.MAT2303; // [26, 38], 12 hours left, no greens
-    expect(finalPctIfSkipping(c, 0)).toBeCloseTo((38 / 50) * 100, 6);
-    expect(finalPctIfSkipping(c, 1)).toBeCloseTo((37 / 50) * 100, 6);
+    const c = p.byCourse.MAT2303; // [25, 37], 12 hours left, no greens
+    expect(finalPctIfSkipping(c, 0)).toBeCloseTo((37 / 49) * 100, 6);
+    expect(finalPctIfSkipping(c, 1)).toBeCloseTo((36 / 49) * 100, 6);
     expect(finalPctIfSkipping(c, 1)).toBeLessThan(75);
   });
 });
@@ -335,7 +335,8 @@ describe("on-duty leaves", () => {
   it("portal baseline plus every OD gives the old granted numbers", () => {
     const eff = effectiveBaseline({ baseline: PORTAL_BASELINE, odState: odStateAll(true) });
     // CSE2257 is 35, one above the old granted 34: the 4 Sep OD now covers its hour too.
-    expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 35, 29, 32, 26, 31, 24, 20]);
+    // CSE2253 30, MAT2303 31, CSE2258 32: the swap-week correction (baseline revision 2).
+    expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 35, 30, 31, 26, 32, 24, 20]);
     // Held never changes.
     expect(COURSE_CODES.map((c) => eff[c][1])).toEqual(COURSE_CODES.map((c) => PORTAL_BASELINE[c][1]));
     // And with none it is the portal as is.
@@ -350,31 +351,31 @@ describe("on-duty leaves", () => {
   });
 
   it("all ODs on", () => {
-    expect(budgetList(plan({ ods: odStateAll(true) }))).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 5]);
+    expect(budgetList(plan({ ods: odStateAll(true) }))).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 7, 6, 5]);
   });
 
   it("all ODs off", () => {
-    expect(budgetList(plan({ ods: odStateAll(false) }))).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 2, 1, 5]);
+    expect(budgetList(plan({ ods: odStateAll(false) }))).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 5]);
   });
 
   it("all on except od-2026-10-30", () => {
     const p = plan({ ods: allExcept("od-2026-10-30") });
-    expect(budgetList(p)).toEqual([7, 5, 5, 0, 8, 4, 4, 5, 5, 6, 5]);
-    expect(greenCounts(p)).toEqual([7, 2, 2, 0, 8, 4, 4, 5, 5, 3, 2]);
+    expect(budgetList(p)).toEqual([7, 5, 5, 0, 8, 4, 4, 5, 6, 6, 5]);
+    expect(greenCounts(p)).toEqual([7, 2, 2, 0, 8, 4, 4, 5, 6, 3, 2]);
   });
 
   it("only 08-12, 09-15, 09-16, 09-17, 09-24 on", () => {
     const p = plan({
       ods: only("od-2026-08-12", "od-2026-09-15", "od-2026-09-16", "od-2026-09-17", "od-2026-09-24"),
     });
-    expect(budgetList(p)).toEqual([6, 3, 3, 0, 7, 3, 3, 5, 4, 4, 5]);
-    expect(greenCounts(p)).toEqual([6, 1, 1, 0, 7, 3, 3, 5, 4, 2, 2]);
+    expect(budgetList(p)).toEqual([6, 3, 3, 0, 7, 3, 3, 5, 5, 4, 5]);
+    expect(greenCounts(p)).toEqual([6, 1, 1, 0, 7, 3, 3, 5, 5, 2, 2]);
   });
 
   it("all on except od-2026-09-04", () => {
     const p = plan({ ods: allExcept("od-2026-09-04") });
-    expect(budgetList(p)).toEqual([8, 5, 3, 2, 8, 5, 5, 5, 6, 6, 5]);
-    expect(greenCounts(p)).toEqual([8, 2, 1, 1, 8, 5, 5, 5, 6, 3, 2]);
+    expect(budgetList(p)).toEqual([8, 5, 3, 2, 8, 5, 5, 5, 7, 6, 5]);
+    expect(greenCounts(p)).toEqual([8, 2, 1, 1, 8, 5, 5, 5, 7, 3, 2]);
   });
 
   it("inPortal adds nothing, same as switching the OD off", () => {
@@ -418,7 +419,7 @@ describe("on-duty leaves", () => {
       { course: "CSE2257", courseName: "Comp Org & Arch", before: 9, after: 8 },
       { course: "CSE2253", courseName: "Data Structures", before: 5, after: 4 },
       { course: "MAT2303", courseName: "Linear Algebra", before: 5, after: 4 },
-      { course: "CSE2258", courseName: "Web Tech", before: 6, after: 5 },
+      { course: "CSE2258", courseName: "Web Tech", before: 7, after: 6 },
     ]);
     expect(diffBudgets(before, before)).toEqual([]);
   });
@@ -437,9 +438,9 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
 
   it("regression: the old window reproduces the old numbers exactly", () => {
     const old = plan({ extra: OLD_WINDOW });
-    expect(budgetList(old)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 5]);
-    expect(greenCounts(old)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 6, 3, 2]);
-    expect(old.greenHoursByWeek).toEqual([5, 13, 29, 11]);
+    expect(budgetList(old)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 7, 6, 5]);
+    expect(greenCounts(old)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 7, 3, 2]);
+    expect(old.greenHoursByWeek).toEqual([5, 14, 29, 11]);
   });
 
   it("Wed 2 to Fri 4 Dec have no classes", () => {
@@ -455,13 +456,13 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
   });
 
   it("budgets and green counts", () => {
-    expect(budgetList(p)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 6, 6, 6]);
-    expect(greenCounts(p)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 6, 3, 3]);
+    expect(budgetList(p)).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 7, 6, 6]);
+    expect(greenCounts(p)).toEqual([8, 2, 2, 1, 9, 5, 5, 5, 7, 3, 3]);
   });
 
   it("green hours per week", () => {
-    expect(p.greenHoursByWeek).toEqual([5, 13, 27, 15]);
-    expect(p.totalGreenHours).toBe(60);
+    expect(p.greenHoursByWeek).toEqual([5, 14, 27, 15]);
+    expect(p.totalGreenHours).toBe(61);
   });
 
   it("Comp Org & Arch can skip all 9 remaining sessions", () => {
@@ -476,9 +477,9 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
 
   it("all ODs off", () => {
     const off = plan({ ods: odStateAll(false), extra: NEW_WINDOW });
-    expect(budgetList(off)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 2, 1, 6]);
-    expect(greenCounts(off)).toEqual([4, 1, 0, 0, 4, 1, 0, 3, 2, 0, 3]);
-    expect(off.greenHoursByWeek).toEqual([0, 0, 9, 13]);
+    expect(budgetList(off)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 6]);
+    expect(greenCounts(off)).toEqual([4, 1, 0, 0, 4, 1, 0, 3, 3, 0, 3]);
+    expect(off.greenHoursByWeek).toEqual([0, 0, 10, 13]);
   });
 
   it("Sat 5 Dec runs exactly Monday's timetable", () => {

@@ -2,7 +2,7 @@
 // only ever sees this app's own API, and the service-role key stays on the server.
 
 import { getAccessKey } from "./accessKey";
-import { tryValidateState, type AppState } from "./storage";
+import { migrateState, tryValidateState, type AppState } from "./storage";
 
 export interface RemoteRecord {
   state: AppState;
@@ -41,6 +41,8 @@ function readPayload(body: unknown): RemoteRecord | null | "invalid" {
   if (state === null) return version === 0 ? null : "invalid";
   const valid = tryValidateState(state);
   if (!valid) return "invalid";
+  // The sync engine migrates too and compares against the raw copy to know
+  // whether the cloud needs the upgrade; migrating here as well is harmless.
   return { state: valid, version, updatedAt: typeof updatedAt === "string" ? updatedAt : null };
 }
 

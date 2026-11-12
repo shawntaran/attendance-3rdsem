@@ -285,15 +285,37 @@ server reply is reported as **Sync error**.
 5. Classes on or before the new date are now inside the baseline, so the app ignores any marks
    on them. You do not need to clear them.
 
+**The current defaults** (`PORTAL_BASELINE`, as of 10 Nov 2026, baseline revision 2) include the
+swap-week correction: in the week of 7 to 11 Sep 2026, Wed 9 Sep ran Friday's timetable and Fri
+11 Sep ran Wednesday's. Placing those hours correctly gives Data Structures 26/34, Web Tech 28/35
+and Linear Algebra 25/37 (they were 25/33, 27/34 and 26/38). Held hours total 313.
+
+**How a correction reaches devices that already saved the old numbers.** The baseline is saved as
+a full copy inside the state (on each device, in its confirmed copy, and in the cloud row), so
+changing `config.ts` alone would not reach them. Each saved state carries
+`settings.baselineRevision` (missing means 1). `migrateState()` in
+[`src/lib/storage.ts`](src/lib/storage.ts) brings an older state up to `BASELINE_REVISION`: a
+course is replaced only if it still equals the old default exactly, so anything you typed by
+hand is kept. It runs everywhere a state comes in: the old localStorage copies, the IndexedDB
+cache (shown and confirmed copies), and every reply from `/api/planner` before it is compared or
+merged. So two devices migrating on their own end up identical, with no false conflict. It works
+offline and with sync not set up. If the cloud row is still on an older revision, the corrected
+values count as a normal local change and are saved to the cloud once.
+
 **In the code (the new defaults for every device):**
 
 1. Edit `PORTAL_BASELINE` and `BASELINE_AS_OF` in [`src/lib/config.ts`](src/lib/config.ts). Remove
    an OD from `ODS` once the portal counts it for good, or add new ones.
-2. `npm test` will now fail on the fixtures in `src/lib/plan.test.ts`, because they are written
-   for the 10 Nov baseline and these ten ODs. Update or remove those expectations.
-3. Commit and push. Vercel redeploys on its own.
-4. A browser that already saved its own settings keeps them. Use **Settings > Reset everything**
-   on that device to pick up the new defaults.
+2. If devices or the cloud already hold the old numbers, raise `BASELINE_REVISION` and add a step to
+   `BASELINE_CORRECTIONS` listing each changed course as `[old default, new default]`. Devices then
+   pick it up on their next load.
+3. `npm test` will now fail on the fixtures in `src/lib/plan.test.ts`, because they are written
+   for the current baseline and these ten ODs. Update or remove those expectations.
+4. Commit and push. Vercel redeploys on its own.
+
+A swapped day in the future needs no code: add an extra working day on that weekday in
+**Settings > Extra working days**, following the timetable it actually ran. It overrides that
+day's normal timetable.
 
 Holidays work the same way: add them in **Settings > Holidays**, or put them in
 `DEFAULT_HOLIDAYS` in `config.ts`.

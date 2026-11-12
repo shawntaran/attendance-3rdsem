@@ -4,7 +4,7 @@
 // (some private-browsing modes).
 
 import type { MergeConflict } from "./merge";
-import { tryValidateState, type AppState } from "./storage";
+import { migrateState, tryValidateState, type AppState } from "./storage";
 import type { CacheRecord, LocalCache, SyncConflict } from "./sync";
 
 const DB_NAME = "skip-planner";
@@ -18,11 +18,12 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function parseConflict(v: unknown): SyncConflict | null {
   if (!isObject(v) || typeof v.at !== "string") return null;
-  const local = tryValidateState(v.local);
-  if (!local) return null;
+  const valid = tryValidateState(v.local);
+  if (!valid) return null;
+  const local = migrateState(valid);
   if (v.kind === "initial") {
     const remote = tryValidateState(v.remote);
-    return remote ? { kind: "initial", at: v.at, local, remote } : null;
+    return remote ? { kind: "initial", at: v.at, local, remote: migrateState(remote) } : null;
   }
   if (v.kind === "merge" && Array.isArray(v.conflicts)) {
     const conflicts = v.conflicts.filter(
@@ -33,13 +34,15 @@ function parseConflict(v: unknown): SyncConflict | null {
   return null;
 }
 
-/** Validate a stored record. Anything unreadable is treated as no cache. */
+/** Validate and migrate (state and base alike) a stored record. Anything unreadable is treated as no cache. */
 export function parseCacheRecord(v: unknown): CacheRecord | null {
   if (!isObject(v) || v.schema !== 1) return null;
-  const state = tryValidateState(v.state);
-  if (!state) return null;
-  const base: AppState | null = v.base === null ? null : tryValidateState(v.base);
-  if (v.base !== null && !base) return null;
+  const validState = tryValidateState(v.state);
+  if (!validState) return null;
+  const state = migrateState(validState);
+  const validBase: AppState | null = v.base === null ? null : tryValidateState(v.base);
+  if (v.base !== null && !validBase) return null;
+  const base = validBase ? migrateState(validBase) : null;
   const { baseVersion, pending, origin, legacyKey } = v;
   if (typeof baseVersion !== "number" || !Number.isSafeInteger(baseVersion) || baseVersion < 0) return null;
   if (typeof pending !== "boolean") return null;

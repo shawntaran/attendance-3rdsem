@@ -474,3 +474,69 @@ describe("access key", () => {
     expect(engine.getSnapshot()).toMatchObject({ status: "synced", failureKind: null });
   });
 });
+
+describe("swap-week baseline correction", () => {
+  function old(): AppState {
+    const s = defaultState();
+    delete s.settings.baselineRevision;
+    s.settings.baseline = { ...s.settings.baseline, CSE2253: [25, 33], CSE2258: [27, 34], MAT2303: [26, 38] };
+    return s;
+  }
+  const NEW = { CSE2253: [26, 34], CSE2258: [28, 35], MAT2303: [25, 37] };
+
+  it("a server holding an old-revision row is upgraded once; a second old device merges without conflict", async () => {
+    const server = fakeServer();
+    // Both devices synced the old state at version 1, before the correction.
+    server.repo.record = { state: old(), version: 1, updatedAt: "t" };
+    const stale = (): CacheRecord => ({ ...newRecord(old(), "cache"), base: old(), baseVersion: 1 });
+    const a = device(server, { cache: memoryCache(stale()) });
+    const b = device(server, { cache: memoryCache(stale()) });
+
+    await a.engine.start();
+    expect(a.engine.getSnapshot().state.settings.baseline).toMatchObject(NEW);
+    expect(server.saves).toBe(1); // pushed exactly once
+    expect(server.repo.record?.version).toBe(2);
+    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 2 });
+
+    await b.engine.start();
+    expect(b.engine.getSnapshot().conflict).toBeNull();
+    expect(b.engine.getSnapshot().state).toEqual(a.engine.getSnapshot().state);
+    expect(server.saves).toBe(1); // nothing left to send
+    expect(b.engine.getSnapshot().status).toBe("synced");
+  });
+
+  it("not configured (503): the correction is shown and cached, status unchanged, retries back off", async () => {
+    const cache = memoryCache({ ...newRecord(old(), "cache"), base: old(), baseVersion: 1 });
+    const timers: number[] = [];
+    const notConfigured = { type: "error" as const, error: { kind: "not_configured" as const, message: "not set up" } };
+    const engine = new SyncEngine({
+      remote: { load: async () => notConfigured, save: async () => notConfigured },
+      cache,
+      legacy: { read: () => null, clear: () => {} },
+      setTimer: (_fn, ms) => timers.push(ms),
+      clearTimer: () => {},
+    });
+    await engine.start();
+    expect(engine.getSnapshot().state.settings.baseline).toMatchObject(NEW);
+    expect(cache.record?.state.settings.baseline).toMatchObject(NEW);
+    expect(engine.getSnapshot()).toMatchObject({ status: "error", failureKind: "not_configured" });
+    expect(timers).toHaveLength(1); // one backoff timer, not a loop
+  });
+
+  it("locked (401): the correction is shown and cached, no retry timer", async () => {
+    const cache = memoryCache({ ...newRecord(old(), "cache"), base: old(), baseVersion: 1 });
+    const timers: number[] = [];
+    const locked = { type: "error" as const, error: { kind: "unauthorized" as const, message: "needs key" } };
+    const engine = new SyncEngine({
+      remote: { load: async () => locked, save: async () => locked },
+      cache,
+      legacy: { read: () => null, clear: () => {} },
+      setTimer: (_fn, ms) => timers.push(ms),
+      clearTimer: () => {},
+    });
+    await engine.start();
+    expect(cache.record?.state.settings.baseline).toMatchObject(NEW);
+    expect(engine.getSnapshot()).toMatchObject({ status: "error", failureKind: "unauthorized" });
+    expect(timers).toEqual([]);
+  });
+});

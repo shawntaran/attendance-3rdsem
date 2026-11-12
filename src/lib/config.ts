@@ -195,6 +195,12 @@ export const BASELINE_AS_OF = "2026-11-10";
  * Attendance exactly as the Linways portal shows it on BASELINE_AS_OF.
  * OD hours the portal has not approved yet are still absent in here; the ODS
  * list below is what turns them into present hours.
+ *
+ * Swap week, 7 to 11 Sep 2026: Wed 9 Sep ran Friday's timetable and Fri 11 Sep
+ * ran Wednesday's, but the hours had been placed by the normal weekday
+ * timetable. Corrected, that nets Linear Algebra -1 present / -1 held, and
+ * Data Structures and Web Tech +1 / +1 each (baseline revision 2). Total held
+ * across all courses: 313.
  */
 export const PORTAL_BASELINE: Baseline = {
   CSE2251: [29, 34],
@@ -202,12 +208,42 @@ export const PORTAL_BASELINE: Baseline = {
   APT4002: [14, 20],
   CSE2259: [16, 22],
   CSE2257: [30, 36],
-  CSE2253: [25, 33],
-  MAT2303: [26, 38],
+  CSE2253: [26, 34], // revision 1: [25, 33]
+  MAT2303: [25, 37], // revision 1: [26, 38]
   CSE2255: [24, 29],
-  CSE2258: [27, 34],
+  CSE2258: [28, 35], // revision 1: [27, 34]
   CSE2256: [19, 24],
   CSE2254: [20, 20],
+};
+
+/**
+ * Saved states carry the revision of the default baseline they were made
+ * with (`settings.baselineRevision`, missing = 1). Raise this and add a step to
+ * BASELINE_CORRECTIONS whenever the defaults are corrected, so devices and the
+ * cloud copy pick the correction up (see migrateState in storage.ts).
+ */
+export const BASELINE_REVISION = 2;
+
+/**
+ * Per revision: courses whose default changed, as [old default, new default].
+ * A saved course is only replaced if it still equals the old default exactly,
+ * so values edited by hand are kept.
+ */
+export const BASELINE_CORRECTIONS: Record<number, Partial<Record<CourseCode, [[number, number], [number, number]]>>> = {
+  2: {
+    CSE2253: [
+      [25, 33],
+      [26, 34],
+    ],
+    CSE2258: [
+      [27, 34],
+      [28, 35],
+    ],
+    MAT2303: [
+      [26, 38],
+      [25, 37],
+    ],
+  },
 };
 
 // ---- On-duty leaves (OD) ---------------------------------------------------
@@ -346,6 +382,11 @@ export interface Settings {
   extraWorkingDays: ExtraWorkingDay[];
   /** Portal attendance, ODs not included. */
   baseline: Baseline;
+  /**
+   * Revision of the default baseline this state has been brought up to.
+   * Optional so states saved before it existed still validate; missing = 1.
+   */
+  baselineRevision?: number;
   /** Which ODs to count as present. */
   odState: OdState;
   holidays: string[];
@@ -363,6 +404,7 @@ export function defaultSettings(): Settings {
     windowEnd: DEFAULT_WINDOW_END,
     extraWorkingDays: structuredClone(DEFAULT_EXTRA_WORKING_DAYS),
     baseline: structuredClone(PORTAL_BASELINE),
+    baselineRevision: BASELINE_REVISION,
     odState: odStateAll(true),
     holidays: [...DEFAULT_HOLIDAYS],
   };

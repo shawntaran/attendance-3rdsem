@@ -6,6 +6,8 @@
 // working days. An older state is migrated once on load.
 
 import {
+  BASELINE_CORRECTIONS,
+  BASELINE_REVISION,
   COURSE_CODES,
   MAX_WINDOW_END,
   ODS,
@@ -13,6 +15,7 @@ import {
   defaultSettings,
   odStateAll,
   type Baseline,
+  type CourseCode,
   type ExtraWorkingDay,
   type OdState,
   type Settings,
@@ -124,16 +127,51 @@ function parseExtraWorkingDays(v: unknown): ExtraWorkingDay[] {
 /** The fields v2 and v3 share. */
 type SharedSettings = Omit<Settings, "windowEnd" | "extraWorkingDays">;
 
+/** Optional: states saved before revisions existed have none (treated as 1). */
+function parseBaselineRevision(v: unknown): number | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 1000) throw new Error("baselineRevision");
+  return v;
+}
+
 function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
   if (!isValidDate(v.baselineAsOf)) throw new Error("baselineAsOf");
+  const revision = parseBaselineRevision(v.baselineRevision);
   return {
     theme: parseTheme(v.theme),
     targetPct: parseTargetPct(v.targetPct),
     cushionHours: parseCushion(v.cushionHours),
     baselineAsOf: v.baselineAsOf,
     baseline: parseBaseline(v.baseline),
+    ...(revision === undefined ? {} : { baselineRevision: revision }),
     odState: parseOdState(v.odState),
     holidays: parseHolidays(v.holidays),
+  };
+}
+
+/**
+ * Bring a state's baseline up to BASELINE_REVISION. Each correction replaces a
+ * course only if it still equals the old default exactly; anything edited by
+ * hand is left alone. Pure and idempotent: a state already at the current
+ * revision comes back unchanged (the same object).
+ */
+export function migrateState(state: AppState): AppState {
+  const from = state.settings.baselineRevision ?? 1;
+  if (from >= BASELINE_REVISION) return state;
+  const baseline = { ...state.settings.baseline };
+  for (let rev = from + 1; rev <= BASELINE_REVISION; rev++) {
+    for (const [code, step] of Object.entries(BASELINE_CORRECTIONS[rev] ?? {})) {
+      if (!step) continue;
+      const [oldValue, newValue] = step;
+      const current = baseline[code as CourseCode];
+      if (current[0] === oldValue[0] && current[1] === oldValue[1]) {
+        baseline[code as CourseCode] = [newValue[0], newValue[1]];
+      }
+    }
+  }
+  return {
+    ...state,
+    settings: { ...state.settings, baseline, baselineRevision: BASELINE_REVISION },
   };
 }
 
@@ -254,7 +292,7 @@ export interface KeyValueStore {
  */
 export function loadFrom(store: KeyValueStore): AppState {
   const current = store.getItem(STORAGE_KEY);
-  if (current !== null) return parseState(current);
+  if (current !== null) return migrateState(parseState(current));
 
   const older: [string, (raw: string | null) => AppState | null][] = [
     [STORAGE_KEY_V2, migrateV2],
@@ -263,8 +301,9 @@ export function loadFrom(store: KeyValueStore): AppState {
   for (const [key, migrate] of older) {
     const raw = store.getItem(key);
     if (raw === null) continue;
-    const migrated = migrate(raw);
-    if (!migrated) return defaultState();
+    const parsed = migrate(raw);
+    if (!parsed) return defaultState();
+    const migrated = migrateState(parsed);
     store.setItem(STORAGE_KEY, JSON.stringify(migrated));
     store.removeItem(key);
     return migrated;
@@ -277,14 +316,15 @@ export const LEGACY_KEYS = [STORAGE_KEY, STORAGE_KEY_V2, STORAGE_KEY_V1] as cons
 
 /**
  * Read the state the localStorage-only versions of the app left behind,
- * migrating v2 or v1 in memory. Unlike loadFrom this never writes or removes
- * anything: the keys stay until the state is safely in the cloud.
+ * migrating v2 or v1 in memory, and brings the baseline up to the current
+ * revision. Unlike loadFrom this never writes or removes anything: the keys
+ * stay until the state is safely in the cloud.
  */
 export function readLegacy(store: Pick<KeyValueStore, "getItem">): { state: AppState; key: string } | null {
   const current = store.getItem(STORAGE_KEY);
   if (current !== null) {
     const state = tryParse(current);
-    if (state) return { state, key: STORAGE_KEY };
+    if (state) return { state: migrateState(state), key: STORAGE_KEY };
   }
   const older: [string, (raw: string | null) => AppState | null][] = [
     [STORAGE_KEY_V2, migrateV2],
@@ -292,7 +332,7 @@ export function readLegacy(store: Pick<KeyValueStore, "getItem">): { state: AppS
   ];
   for (const [key, migrate] of older) {
     const migrated = migrate(store.getItem(key));
-    if (migrated) return { state: migrated, key };
+    if (migrated) return { state: migrateState(migrated), key };
   }
   return null;
 }
