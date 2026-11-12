@@ -1,5 +1,5 @@
-// Client side of /api/planner. Never talks to Supabase directly: the browser
-// only ever sees this app's own API, and the service-role key stays on the server.
+// Client side of /api/planner. Never talks to the database directly: the browser
+// only ever sees this app's own API, and the database API key stays on the server.
 
 import { getAccessKey } from "./accessKey";
 import { migrateState, tryValidateState, type AppState } from "./storage";

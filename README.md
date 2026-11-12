@@ -13,7 +13,7 @@ finish every one of the 11 courses at 75% attendance or more on the last day of 
   timetable, are settings. Week tabs, dates and labels follow them.
 - A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
   combination and see the skip budget change at once.
-- Cloud sync: the same marks and settings on every device, through a Supabase database behind
+- Cloud sync: the same marks and settings on every device, through an Appwrite database behind
   this app's own API. No accounts: it is a single-user planner, locked with one private access
   key that each of your devices enters once. It keeps working offline and syncs
   when the connection is back. See [Cloud sync](#cloud-sync).
@@ -149,28 +149,31 @@ unchanged: a longer window just means more remaining hours, which raises some bu
 ### How it works
 
 ```
-Browser (each device)                    Vercel (server)                Supabase
+Browser (each device)                    Vercel (server)                Appwrite
 -----------------------------            ---------------------          ------------------
-Planner UI                               /api/planner                   planner_state
-  usePlannerSync -> SyncEngine   <---->    GET: state + version   <-->    one row: state jsonb,
-  IndexedDB cache (this device)            PUT: state if version            version, updated_at
-                                           still matches (else 409)
+Planner UI                               /api/planner                   planner_versions
+  usePlannerSync -> SyncEngine   <---->    GET: newest version    <-->    one row per version:
+  IndexedDB cache (this device)            PUT: save as n+1 only            v1, v2, ... (state
+                                           if still at n (else 409)         JSON + version)
 ```
 
-- **The cloud is the source of truth.** One row in `planner_state` holds the whole `AppState`
-  (settings, ODs, baseline, plan window, marks) as JSON, plus a `version` number. The plan
-  itself is still computed in the browser by `computePlan()`; only the inputs are stored.
-- **The browser never talks to Supabase.** It calls `/api/planner` on this app. The route uses
-  the service-role key, which exists only on the server. The table has Row Level Security on
-  with no policies, so the public Supabase API cannot read or change it.
+- **The cloud is the source of truth.** The newest row in `planner_versions` holds the whole
+  `AppState` (settings, ODs, baseline, plan window, marks) as JSON, plus its `version` number.
+  The plan itself is still computed in the browser by `computePlan()`; only the inputs are
+  stored. The last 200 versions are kept as history; older ones are pruned.
+- **The browser never talks to Appwrite.** It calls `/api/planner` on this app. The route uses an
+  Appwrite API key that exists only on the server. The table has no permissions and no row
+  security, so nothing but a server API key can read or change it.
 - **Access key.** Every request to `/api/planner` must carry the key from the server's
   `PLANNER_ACCESS_KEY` (`Authorization: Bearer <key>`), checked in constant time before the
   database is touched. Without it the API answers 401. With no key configured on the server it
   refuses everyone (fails closed). Each device stores its copy of the key in localStorage.
-- **No silent overwrites.** Every save sends the version it was based on. The server updates the
-  row only if the version still matches (one atomic `UPDATE ... WHERE version = n`) and sets
-  the new version itself; otherwise it answers 409 with what it has now. A database trigger also
-  refuses any update that does not move the version forward by exactly one.
+- **No silent overwrites.** Every save sends the version it was based on, and the server sets the
+  new version itself. Saving on top of version n means creating the row `v{n+1}`: Appwrite refuses
+  a row id that already exists, and a unique index on `version` backs that up, so of two devices
+  saving from the same version exactly one succeeds. The other gets 409 with what is there now and
+  merges. After each save the server also checks that its row is the newest, which rules out a
+  device hundreds of saves behind slipping into pruned history. Reads ask Appwrite not to cache.
 - **Local first.** On launch the app shows this device's cached copy (IndexedDB) at once, then
   fetches the cloud copy and reconciles. Edits are cached immediately and sent after a 0.8 s
   pause. Changes from other devices are picked up every 15 s while the tab is visible, and at
@@ -212,15 +215,15 @@ The status next to the week title shows **Cloud synced**, **Saving...**, **Sync 
 4. If the server cannot be reached or is not configured, the old keys stay and the app keeps
    working from this device's cache; the upload happens on a later launch or retry.
 
-### Set up Supabase
+### Set up Appwrite
 
-1. Create a project at [supabase.com](https://supabase.com) (the free tier is plenty).
-2. **SQL Editor** > **New query**: paste the contents of
-   [`supabase/migrations/0001_planner_state.sql`](supabase/migrations/0001_planner_state.sql)
-   and **Run**. It creates the `planner_state` table, the single-row and version checks, and locks
-   the table to the service role.
-3. **Project Settings** > **API**: copy the **Project URL** and the **service_role** key (under
-   "Project API keys"; it is secret).
+1. Create a project at [cloud.appwrite.io](https://cloud.appwrite.io) (the free plan is plenty).
+2. In the project's **Settings**, note the **API endpoint** (for example
+   `https://fra.cloud.appwrite.io/v1`) and the **Project ID**.
+3. **Overview** > **API keys** > **Create API key**. Give it the scopes **databases**, **tables**,
+   **columns**, **indexes** and **rows** (read and write each) and copy the secret. For tighter
+   security you can later make a second key with only `rows.read` and `rows.write` for Vercel;
+   the broader scopes are only needed by the setup script.
 4. Make an access key: a long random string, at least 24 characters (shorter ones are refused).
    For example:
 
@@ -229,12 +232,21 @@ The status next to the week title shows **Cloud synced**, **Saving...**, **Sync 
    ```
 
    Keep it somewhere safe, such as a password manager.
-5. Locally: copy `.env.example` to `.env.local` and fill in all three values. `.env.local` is
-   git-ignored.
-6. On Vercel: **Project** > **Settings** > **Environment Variables**, add `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY` and `PLANNER_ACCESS_KEY` for Production (and Preview if you use
-   it), then redeploy. Never prefix them with `NEXT_PUBLIC_`.
-7. Open the app on each device. It shows **Cloud sync is locked on this device**: paste the access
+5. Copy `.env.example` to `.env.local` and fill in `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`,
+   `APPWRITE_API_KEY` and `PLANNER_ACCESS_KEY`. `.env.local` is git-ignored.
+6. Create the database, table, columns and index (safe to run again):
+
+   ```bash
+   npm run setup:appwrite
+   ```
+
+   It makes database `planner` with table `planner_versions`: an integer column `version`, a
+   mediumtext column `state`, a unique index on `version`, no permissions and no row security.
+   To do it by hand in the console instead, create exactly that.
+7. On Vercel: **Project** > **Settings** > **Environment Variables**, add the same four variables
+   for Production (and Preview if you use it), then redeploy. Never prefix them with
+   `NEXT_PUBLIC_`.
+8. Open the app on each device. It shows **Cloud sync is locked on this device**: paste the access
    key and press **Unlock sync**. The status turns to **Cloud synced**, and your existing data is
    uploaded as described above. You can change or forget the key later in **Settings > Cloud
    access key**.
@@ -243,7 +255,7 @@ Without the variables the API answers "not configured", the status shows **Sync 
 app keeps everything on the device. To lock out a lost device, change `PLANNER_ACCESS_KEY` on
 Vercel, redeploy, and enter the new key on the devices you still use.
 
-You do not need to enable Realtime: sync works through the app's API.
+You do not need Appwrite Realtime: sync works through the app's API.
 
 ### Limitations
 
@@ -255,8 +267,11 @@ You do not need to enable Realtime: sync works through the app's API.
 - Two tabs on the same device share one cache. If one tab is closed within a second of an edit
   while offline, that edit can be overwritten in the cache by the other tab (it is still sent if
   the closing tab's last save got out).
-- Supabase pauses free projects after a week without activity; the app then shows **Sync error**
-  until the project is resumed from the dashboard, and keeps working on the device meanwhile.
+- Appwrite's free plan may pause projects that see no activity for a long time; the app then shows
+  **Sync error** until the project is resumed from the console, and keeps working on the device
+  meanwhile.
+- Each save adds a row (a few KB). History is pruned to the last 200 versions, so storage stays
+  small.
 
 ## Saved state and migrations
 
@@ -323,7 +338,7 @@ Holidays work the same way: add them in **Settings > Holidays**, or put them in
 ## Deploy on Vercel
 
 The app is a standard Next.js project. Vercel detects the framework. For cloud sync it needs the
-three environment variables from [Set up Supabase](#set-up-supabase); without them it still builds
+four environment variables from [Set up Appwrite](#set-up-appwrite); without them it still builds
 and runs, keeping data on each device.
 
 ### With GitHub (recommended)
@@ -369,7 +384,7 @@ Open the deployed URL on the phone, then:
 - **Android (Chrome):** menu > **Add to Home screen** (or **Install app**).
 - **iPhone (Safari):** Share > **Add to Home Screen**.
 
-With Supabase set up, the phone and your laptop show the same planner.
+With Appwrite set up, the phone and your laptop show the same planner.
 
 ## Project layout
 
@@ -383,9 +398,9 @@ src/lib/sync.ts       sync engine: reconcile (syncState), push, retry, conflicts
 src/lib/merge.ts      three-way merge of two states, entry by entry
 src/lib/remote.ts     client for /api/planner (loadRemoteState, saveRemoteState)
 src/lib/localCache.ts IndexedDB cache (loadLocalCache, saveLocalCache)
-src/lib/server/       API request handling and the Supabase repository (server only)
+src/lib/server/       API request handling, versioned store, Appwrite repository (server only)
 src/app/api/planner/  the GET / PUT route
-supabase/migrations/  SQL for the planner_state table
+scripts/setup-appwrite.mjs   creates the Appwrite database and table (npm run setup:appwrite)
 src/lib/view.ts       labels and text shared by the views
 src/components/       Planner, DesktopGrid, MobileDays, SessionDialog, SettingsDrawer, ...
 src/app/              layout (fonts, metadata), page, manifest

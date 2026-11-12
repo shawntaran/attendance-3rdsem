@@ -1,6 +1,6 @@
 import { checkAccess, keyFromHeader, MIN_KEY_LENGTH } from "@/lib/server/access";
 import { handleGet, handlePut, MAX_BODY_BYTES, type ApiResult, type PlannerRepo } from "@/lib/server/plannerApi";
-import { supabaseRepo } from "@/lib/server/supabaseRepo";
+import { appwriteRepo } from "@/lib/server/appwriteRepo";
 
 // Always run on the server at request time; never cache planner state.
 export const dynamic = "force-dynamic";
@@ -29,11 +29,14 @@ function authorize(request: Request): ApiResult | PlannerRepo {
   if (access === "unauthorized") {
     return { status: 401, body: { error: "unauthorized", message: "Missing or wrong access key." } };
   }
-  const repo = supabaseRepo();
+  const repo = appwriteRepo();
   if (!repo) {
     return {
       status: 503,
-      body: { error: "not_configured", message: "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set." },
+      body: {
+        error: "not_configured",
+        message: "APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID and APPWRITE_API_KEY are not set.",
+      },
     };
   }
   return repo;

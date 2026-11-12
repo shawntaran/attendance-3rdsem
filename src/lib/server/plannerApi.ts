@@ -1,4 +1,4 @@
-// Request handling for /api/planner, kept free of Next.js and Supabase so it
+// Request handling for /api/planner, kept free of Next.js and any database SDK so it
 // can be tested with an in-memory repository.
 
 import { tryValidateState, validateState, type AppState } from "../storage";
