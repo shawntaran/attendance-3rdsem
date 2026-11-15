@@ -61,6 +61,16 @@ export function SkipIcon(p: IconProps) {
   );
 }
 
+export function QuestionIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6" />
+      <path d="M12 17h.01" />
+    </Svg>
+  );
+}
+
 export function CloseIcon(p: IconProps) {
   return (
     <Svg {...p}>
@@ -94,8 +104,9 @@ export function StatusIcon({ status, ...p }: IconProps & { status: SessionStatus
     case "attend":
       return <AlertCircleIcon {...p} />;
     case "attended":
-    case "assumed":
       return <CheckCircleIcon {...p} />;
+    case "unmarked":
+      return <QuestionIcon {...p} />;
     case "skipped":
       return <SkipIcon {...p} />;
   }

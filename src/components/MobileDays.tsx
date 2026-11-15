@@ -95,7 +95,6 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen, onToggleDa
                           <StatusIcon status={s.status} size={15} />
                           {STATUS_LABEL[s.status]}
                         </span>
-                        {s.status === "assumed" && <span className="font-medium">Assumed</span>}
                       </span>
                     </button>
                   </li>

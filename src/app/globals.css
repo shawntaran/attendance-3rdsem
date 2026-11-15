@@ -137,11 +137,17 @@ button:disabled {
   border-color: var(--color-must-border);
   color: var(--color-must-ink);
 }
-.state-attended,
-.state-assumed {
+.state-attended {
   background: var(--color-done-bg);
   border-color: var(--color-done-border);
   color: var(--color-done-ink);
+}
+/* A past class with no mark: neutral and dashed, waiting for you to set it. */
+.state-unmarked {
+  background: var(--color-surface);
+  border-color: var(--color-field);
+  border-style: dashed;
+  color: var(--color-ink);
 }
 .state-skipped {
   background: var(--color-skipped-bg);

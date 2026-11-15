@@ -7,6 +7,7 @@ import {
   computePlan,
   diffBudgets,
   diffPlans,
+  weekIndexOf,
   type BudgetChange,
   type Mark,
   type Marks,
@@ -30,6 +31,7 @@ import { SettingsDrawer } from "./SettingsDrawer";
 import { SyncIndicator } from "./SyncIndicator";
 import { Toast, type ToastData } from "./Toast";
 import { WeekTabs } from "./WeekTabs";
+import { UnmarkedNotice } from "./UnmarkedNotice";
 import { WhatIfPanel } from "./WhatIfPanel";
 import { usePlannerSync } from "./usePlannerSync";
 import { SettingsIcon } from "./icons";
@@ -149,6 +151,14 @@ export function Planner() {
     () => (offDays.length === 0 ? plan : computePlan({ settings: state.settings, marks: state.marks, today })),
     [offDays.length, plan, state, today],
   );
+  // The earliest past class still waiting for a mark, if any.
+  const firstUnmarked = useMemo(() => {
+    let first: PlanSession | null = null;
+    for (const c of plan.courses) {
+      for (const s of c.unmarked) if (!first || s.id < first.id) first = s;
+    }
+    return first;
+  }, [plan]);
   const whatIf = useMemo(() => (offDays.length === 0 ? null : summarizeWhatIf(realPlan, plan)), [offDays.length, realPlan, plan]);
 
   useEffect(() => {
@@ -341,6 +351,19 @@ export function Planner() {
             setPulse({ key: counter.current, ids: new Set(diffPlans(plan, after).changedIds) });
             setOffDays([]);
             setToast({ key: counter.current, message: "All days back on.", canUndo: false });
+          }}
+        />
+      )}
+
+      {ready && firstUnmarked && (
+        <UnmarkedNotice
+          count={plan.unmarkedCount}
+          firstDate={firstUnmarked.date}
+          onShow={() => {
+            const target = firstUnmarked;
+            const w = weekIndexOf(plan.weeks, target.date);
+            if (w >= 0) setWeekIndex(w);
+            requestAnimationFrame(() => focusCell(target.id));
           }}
         />
       )}

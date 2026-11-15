@@ -7,11 +7,16 @@
 //      on or before baselineAsOf (those are already inside the baseline).
 //   2. Walk them from the baseline (P present, H held). P is the portal figure
 //      plus the hours of every OD that is switched on and not already in the
-//      portal; H is the portal figure as is. A marked session, or an
-//      unmarked one in the past (assumed attended), updates P and H. The rest
-//      are the remaining list R.
-//   3. n = hours in R. budgetHours = clamp(floor(P - t*H + (1-t)*n) - cushion, 0, n).
-//      (Final present = P + n - x, final held = H + n, need >= t.)
+//      portal; H is the portal figure as is. A marked session updates P and
+//      H. A past session with no mark is "unmarked": nothing is assumed about
+//      it, so it is left out of P and H (u = its hours). Future sessions with
+//      no mark are the remaining list R.
+//   3. n = hours in R. Unmarked hours are planned for as if they were missed,
+//      so a skip is never offered that only works if you did attend them:
+//      budgetHours = clamp(floor(P - t*H + (1-t)*n - t*u) - cushion, 0, n).
+//      (Final present = P + n - x, final held = H + n + u, need >= t.)
+//      Marking an unmarked class attended raises the budget by its hours;
+//      marking it skipped changes nothing (it was already planned as missed).
 //   4. g = min(|R|, floor(budgetHours / span)). The LAST g sessions of R are
 //      "skip-ok", every other one is "attend" (latest-first allocation).
 
@@ -38,7 +43,7 @@ export type SessionStatus =
   | "skip-ok" // undecided, safe to skip
   | "attend" // undecided, must attend
   | "attended" // marked attended
-  | "assumed" // past and unmarked, counted as attended
+  | "unmarked" // past and not marked yet: not counted, planned for as missed
   | "skipped"; // marked skipped
 
 export interface PlanSession {
@@ -57,7 +62,7 @@ export interface CoursePlan {
   name: string;
   /** Hours per session (1 for theory, 2 for labs and aptitude). */
   span: number;
-  /** Present and held hours so far: baseline plus every decided session. */
+  /** Present and held hours so far: baseline plus every marked session. */
   present: number;
   held: number;
   currentPct: number;
@@ -75,6 +80,9 @@ export interface CoursePlan {
   skippableHours: number;
   /** Hours already marked skipped. */
   skipHoursUsed: number;
+  /** Past sessions with no mark yet, and their hours. */
+  unmarked: PlanSession[];
+  unmarkedHours: number;
   finalPctIfAttendAll: number;
   finalPctIfSkipGreens: number;
 }
@@ -92,6 +100,8 @@ export interface Plan {
   /** Green (skip-ok) hours per week, in `weeks` order. */
   greenHoursByWeek: number[];
   totalGreenHours: number;
+  /** Past sessions with no mark, across all courses. */
+  unmarkedCount: number;
 }
 
 export interface ComputePlanInput {
@@ -241,16 +251,17 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
 
     const sessions: PlanSession[] = [];
     const remaining: PlanSession[] = [];
+    const unmarked: PlanSession[] = [];
 
     for (const s of raw) {
       const mark = marks[s.id];
       let status: SessionStatus;
       if (mark === "attended") status = "attended";
       else if (mark === "skipped") status = "skipped";
-      else if (s.date < today) status = "assumed";
+      else if (s.date < today) status = "unmarked";
       else status = "attend"; // provisional, greens are assigned below
 
-      if (status === "attended" || status === "assumed") {
+      if (status === "attended") {
         present += s.span;
         held += s.span;
       } else if (status === "skipped") {
@@ -261,13 +272,15 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
       const session: PlanSession = { ...s, status };
       sessions.push(session);
       if (status === "attend") remaining.push(session);
+      if (status === "unmarked") unmarked.push(session);
     }
 
     const n = remaining.reduce((sum, s) => sum + s.span, 0);
+    const u = unmarked.reduce((sum, s) => sum + s.span, 0);
     const span = raw[0]?.span ?? 1;
 
     const budgetHours = clamp(
-      Math.floor(present - t * held + (1 - t) * n + 1e-9) - settings.cushionHours,
+      Math.floor(present - t * held + (1 - t) * n - t * u + 1e-9) - settings.cushionHours,
       0,
       n,
     );
@@ -296,8 +309,11 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
       budgetHours,
       skippableHours,
       skipHoursUsed,
-      finalPctIfAttendAll: pct(present + n, held + n),
-      finalPctIfSkipGreens: pct(present + n - skippableHours, held + n),
+      unmarked,
+      unmarkedHours: u,
+      // Unmarked classes count as missed in these projections, until marked.
+      finalPctIfAttendAll: pct(present + n, held + n + u),
+      finalPctIfSkipGreens: pct(present + n - skippableHours, held + n + u),
     });
   }
 
@@ -321,6 +337,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
     byId,
     greenHoursByWeek,
     totalGreenHours: greenHoursByWeek.reduce((a, b) => a + b, 0),
+    unmarkedCount: courses.reduce((sum, c) => sum + c.unmarked.length, 0),
   };
 }
 
@@ -330,7 +347,8 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
  */
 export function finalPctIfSkipping(course: CoursePlan, extraHours: number): number {
   const n = course.remainingHours;
-  return pct(course.present + n - course.skippableHours - extraHours, course.held + n);
+  const u = course.unmarkedHours;
+  return pct(course.present + n - course.skippableHours - extraHours, course.held + n + u);
 }
 
 // ---- Diffing two plans -----------------------------------------------------

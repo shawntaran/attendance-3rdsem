@@ -93,7 +93,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   "skip-ok": "Can skip",
   attend: "Attend",
   attended: "Attended",
-  assumed: "Attended",
+  unmarked: "Not marked",
   skipped: "Skipped",
 };
 
@@ -101,7 +101,7 @@ const STATUS_SPOKEN: Record<SessionStatus, string> = {
   "skip-ok": "you can skip",
   attend: "you should attend",
   attended: "marked attended",
-  assumed: "assumed attended",
+  unmarked: "not marked yet",
   skipped: "marked skipped",
 };
 
@@ -142,8 +142,8 @@ export function reasonText(plan: Plan, session: PlanSession): string {
         : `Attend: ${name} has no skippable hours left.`;
     case "attended":
       return `Marked attended. ${name} is at ${fmtPct(course.currentPct)} now.`;
-    case "assumed":
-      return `This day has passed with no mark, so it counts as attended. Change it if you skipped.`;
+    case "unmarked":
+      return `This class has passed and is not marked yet, so it is left out of your current %. Until you mark it, the plan counts it as missed. Marking it attended gives ${name} ${fmtHours(session.span)} more skip budget.`;
     case "skipped":
       return `Marked skipped. It used ${fmtHours(session.span)} of ${name}'s allowance.`;
   }

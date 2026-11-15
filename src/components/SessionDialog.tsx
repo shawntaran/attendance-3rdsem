@@ -93,7 +93,6 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
       >
         <StatusIcon status={status} size={14} />
         {STATUS_LABEL[status]}
-        {status === "assumed" && <span className="font-medium">(Assumed)</span>}
       </p>
 
       <p className="mt-2.5 text-sm leading-relaxed">{reasonText(plan, session)}</p>
@@ -123,13 +122,13 @@ export function SessionDialog({ plan, session, anchor, isDesktop, onMark, onClos
             )}
           </>
         )}
-        {status === "assumed" && (
+        {status === "unmarked" && (
           <>
-            <button type="button" data-autofocus className={primaryBtn} onClick={() => onMark("skipped")}>
-              I skipped this
-            </button>
-            <button type="button" className={secondaryBtn} onClick={() => onMark("attended")}>
+            <button type="button" data-autofocus className={primaryBtn} onClick={() => onMark("attended")}>
               I attended this
+            </button>
+            <button type="button" className={secondaryBtn} onClick={() => onMark("skipped")}>
+              I skipped this
             </button>
           </>
         )}

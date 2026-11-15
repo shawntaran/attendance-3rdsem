@@ -147,7 +147,6 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen, onToggleD
                 <span className="mt-auto flex flex-wrap items-center gap-x-1 pt-1.5 text-[11px] leading-tight font-bold xl:text-xs">
                   <StatusIcon status={s.status} size={14} className="shrink-0" />
                   {STATUS_LABEL[s.status]}
-                  {s.status === "assumed" && <span className="font-medium">(Assumed)</span>}
                 </span>
               </button>
             ))}

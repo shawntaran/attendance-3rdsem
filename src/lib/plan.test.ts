@@ -262,39 +262,68 @@ describe("events (all ODs on, today 2026-11-11)", () => {
 });
 
 describe("past days", () => {
-  it("today 2026-11-18, no marks: unmarked past sessions count as attended", () => {
+  // The same plan when every past class is marked attended: what the old
+  // "assume attended" rule used to give with no marks at all.
+  const ALL_PAST_ATTENDED = {
+    CSE2251: 6,
+    CSE2252: 4,
+    APT4002: 4,
+    CSE2259: 2,
+    CSE2257: 6,
+    CSE2253: 5,
+    MAT2303: 5,
+    CSE2255: 5,
+    CSE2258: 6,
+    CSE2256: 4,
+    CSE2254: 4,
+  };
+
+  it("today 2026-11-18, no marks: past classes are unmarked and not counted", () => {
     const p = plan({ today: "2026-11-18" });
-    expect(budgets(p)).toEqual({
-      CSE2251: 6,
-      CSE2252: 4,
-      APT4002: 4,
-      CSE2259: 2,
-      CSE2257: 6,
-      CSE2253: 5,
-      MAT2303: 5,
-      CSE2255: 5,
-      CSE2258: 6,
-      CSE2256: 4,
-      CSE2254: 4,
-    });
-    expect(p.byId["2026-11-17@6"].status).toBe("assumed");
-    expect(p.byId["2026-11-18@1"].status).not.toBe("assumed");
-    // The budget is capped by the hours that are left.
-    for (const c of p.courses) expect(c.budgetHours).toBeLessThanOrEqual(c.remainingHours);
+    expect(p.byId["2026-11-17@6"].status).toBe("unmarked");
+    expect(p.byId["2026-11-18@1"].status).not.toBe("unmarked");
+    // Nothing is added to present or held until marked.
+    expect([p.byCourse.MAT2303.present, p.byCourse.MAT2303.held]).toEqual([31, 37]);
+    expect(p.byCourse.MAT2303.currentPct).toBeCloseTo((31 / 37) * 100, 6);
+    // Wed 11, Thu 12, Fri 13, Mon 16 Nov: 4 unmarked hours, planned for as missed.
+    expect(p.byCourse.MAT2303.unmarkedHours).toBe(4);
+    // floor(31 - 0.75*37 + 0.25*8 - 0.75*4) - 1 = floor(2.25) - 1 = 1
+    expect(p.byCourse.MAT2303.budgetHours).toBe(1);
+    expect(p.unmarkedCount).toBe(p.courses.reduce((sum, c) => sum + c.unmarked.length, 0));
+    for (const c of p.courses) {
+      expect(c.budgetHours).toBeLessThanOrEqual(c.remainingHours);
+      expect(c.budgetHours).toBeLessThanOrEqual(ALL_PAST_ATTENDED[c.code]);
+      // Safe even if every unmarked class turns out to have been missed.
+      expect(c.finalPctIfSkipGreens).toBeGreaterThanOrEqual(75);
+    }
   });
 
-  it("a past session marked skipped is not assumed attended", () => {
-    const p = plan({ today: "2026-11-18", marks: { "2026-11-12@1": "skipped" } });
-    expect(p.byId["2026-11-12@1"].status).toBe("skipped");
-    expect(p.byCourse.MAT2303.skipHoursUsed).toBe(1);
-    expect(p.byCourse.MAT2303.budgetHours).toBe(4);
+  it("marking every past class attended gives the same plan the old assumption did", () => {
+    const empty = plan({ today: "2026-11-18" });
+    const marks: Marks = {};
+    for (const c of empty.courses) for (const s of c.unmarked) marks[s.id] = "attended";
+    const p = plan({ today: "2026-11-18", marks });
+    expect(budgets(p)).toEqual(ALL_PAST_ATTENDED);
+    expect(p.unmarkedCount).toBe(0);
   });
 
-  it("after the window everything is decided", () => {
+  it("marking an unmarked class attended frees its hours; marking it skipped changes nothing", () => {
+    const base = plan({ today: "2026-11-18" }).byCourse.MAT2303.budgetHours;
+    const attended = plan({ today: "2026-11-18", marks: { "2026-11-12@1": "attended" } }).byCourse.MAT2303;
+    const skipped = plan({ today: "2026-11-18", marks: { "2026-11-12@1": "skipped" } }).byCourse.MAT2303;
+    expect(attended.budgetHours).toBe(base + 1);
+    expect(skipped.budgetHours).toBe(base);
+    expect(skipped.skipHoursUsed).toBe(1);
+    expect(skipped.unmarkedHours).toBe(3);
+    expect(plan({ today: "2026-11-18", marks: { "2026-11-12@1": "skipped" } }).byId["2026-11-12@1"].status).toBe("skipped");
+  });
+
+  it("after the window nothing is left to plan, and unmarked classes are listed", () => {
     const p = plan({ today: "2026-12-05" });
     for (const c of p.courses) {
       expect(c.remaining).toEqual([]);
       expect(c.budgetHours).toBe(0);
+      expect(c.unmarked.length).toBe(c.sessions.length);
     }
     expect(p.totalGreenHours).toBe(0);
   });

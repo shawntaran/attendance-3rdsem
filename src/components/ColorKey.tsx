@@ -25,7 +25,8 @@ export function ColorKey({ settings }: { settings: Settings }) {
   const rows: [SessionStatus, string][] = [
     ["skip-ok", `You can miss this class and still finish the course at ${t}% or more on ${end}${cushion}.`],
     ["attend", `Go. Skipping this one risks pushing the course under ${t}% by ${end}.`],
-    ["attended", "You went. Past days with no mark are assumed attended."],
+    ["attended", "You went."],
+    ["unmarked", "Passed, not marked yet. Left out of your current %, and planned for as missed until you mark it."],
     ["skipped", "You missed it. Its hours came out of that course's allowance."],
   ];
   return (

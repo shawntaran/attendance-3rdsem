@@ -54,20 +54,24 @@ Labs and aptitude span 2 periods and count as 2 hours.
    have none. See [Plan window](#plan-window-and-extra-working-days).
 2. **Walk them.** Start with `P` = baseline present hours and `H` = baseline held hours (see
    [On-duty leaves](#on-duty-leaves-od) for how `P` is built from the portal figure). For each
-   session the effective status is its mark; with no mark it is "attended (assumed)" if the date
-   is before today, otherwise undecided.
+   session the effective status is its mark. Nothing is ever assumed about a class you have not
+   marked.
    - attended: `P += span`, `H += span`
    - skipped: `H += span`
-   - undecided: goes into the remaining list `R`
-3. **Budget.** With `n` = total hours in `R` and `t` = target (0.75):
+   - no mark, date before today: **unmarked**. Not added to `P` or `H` (so your current % only
+     counts what you have marked); its hours go into `u`.
+   - no mark, today or later: undecided, goes into the remaining list `R`
+3. **Budget.** With `n` = total hours in `R`, `u` = unmarked hours and `t` = target (0.75):
 
    ```
-   budgetHours = clamp(floor(P - t*H + (1 - t)*n + 1e-9) - cushion, 0, n)
+   budgetHours = clamp(floor(P - t*H + (1 - t)*n - t*u + 1e-9) - cushion, 0, n)
    ```
 
-   Why: if you skip `x` more hours, final present is `P + n - x` and final held is `H + n`.
-   Requiring `(P + n - x) / (H + n) >= t` gives `x <= P - t*H + (1 - t)*n`. The cushion
-   (default 1 hour) is kept unspent as a safety margin.
+   Why: unmarked classes are planned for as if you missed them, so a skip is never offered that
+   only works if you actually attended them. If you skip `x` more hours, final present is
+   `P + n - x` and final held is `H + n + u`. Requiring `(P + n - x) / (H + n + u) >= t` gives
+   `x <= P - t*H + (1 - t)*n - t*u`. The cushion (default 1 hour) is kept unspent as a safety
+   margin. The final % figures use the same worst case for unmarked classes.
 4. **Latest-first allocation.** `g = min(|R|, floor(budgetHours / span))`. The **last** `g`
    sessions of `R` are green ("Can skip"). Every other session in `R` is red ("Attend"). Skips
    therefore pile up in the final weeks and spill backwards into earlier weeks only when a
@@ -82,8 +86,10 @@ What follows from that:
   of the same course.
 - Attending a red class changes no greens.
 - Skipping any class cuts that course's budget by the class's hours.
-- A past day you never marked counts as attended. That can shrink a budget, because it can never
-  be more than the hours that are left.
+- A past class you have not marked shows as **Not marked** until you set it. Marking it attended
+  raises that course's budget by its hours; marking it skipped changes nothing, because it was
+  already planned for as missed. A notice above the week tabs counts the unmarked classes and
+  jumps to the first one.
 
 `diffPlans(before, after)` compares two plans and reports moved skips per course (for example
 "Comp Org & Arch: skip moved from Fri 4 Dec to Wed 11 Nov"). `diffBudgets(before, after)` lists
