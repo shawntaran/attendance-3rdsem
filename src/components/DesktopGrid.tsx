@@ -2,6 +2,7 @@ import { COURSE_NAME, PERIODS } from "@/lib/config";
 import { formatDayMonth, weekdayName } from "@/lib/dates";
 import type { PlanSession } from "@/lib/plan";
 import { STATUS_LABEL, cellAriaLabel, extraChipLabel, extraSpoken, type DayView } from "@/lib/view";
+import { DayToggle } from "./DayToggle";
 import { StatusIcon } from "./icons";
 
 // Grid columns: day | 1 | 2 | break | 3 | 4 | lunch | 6 | break | 7 | 8
@@ -25,9 +26,10 @@ interface Props {
   pulseIds: Set<string>;
   pulseKey: number;
   onOpen: (session: PlanSession, trigger: HTMLElement) => void;
+  onToggleDay: (date: string) => void;
 }
 
-export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) {
+export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen, onToggleDay }: Props) {
   return (
     <div
       className="grid gap-1.5"
@@ -79,7 +81,14 @@ export function DesktopGrid({ days, today, pulseIds, pulseKey, onOpen }: Props) 
               }`}
               style={{ gridColumn: 1, gridRow: row }}
             >
-              <div className="font-display text-xl leading-tight font-bold">{weekdayName(day.date)}</div>
+              <div className="flex items-start justify-between gap-1">
+                <div className="font-display text-xl leading-tight font-bold">{weekdayName(day.date)}</div>
+                {day.canToggle && (
+                  <span className="-mt-1.5 -mr-2">
+                    <DayToggle date={day.date} off={day.off} onToggle={onToggleDay} tone={muted ? "light" : "dark"} size="sm" />
+                  </span>
+                )}
+              </div>
               <div className="text-xs">{formatDayMonth(day.date)}</div>
               {day.extra && (
                 <span

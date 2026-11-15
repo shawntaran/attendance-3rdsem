@@ -17,6 +17,10 @@ finish every one of the 11 courses at 75% attendance or more on the last day of 
   this app's own API. No accounts: it is a single-user planner, locked with one private access
   key that each of your devices enters once. It keeps working offline and syncs
   when the connection is back. See [Cloud sync](#cloud-sync).
+- What-if holidays: the switch on each day's title turns that day off and recalculates at once
+  as if it were a holiday. A panel shows, for each course that loses classes, the final % (if you
+  attend everything, and if you skip every green) and the skip budget, before and after. It is a
+  preview on this device only: your real holidays and marks are unchanged and nothing is synced.
 - Light and dark themes. It follows the device by default; **Settings > Theme** forces one.
 - Can be added to a phone home screen (web manifest and icons included).
 

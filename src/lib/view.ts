@@ -23,13 +23,22 @@ export interface DayView {
   /** Set when the day runs another weekday's timetable. */
   extra: ExtraWorkingDay | null;
   sessions: PlanSession[];
+  /** A teaching day that can be switched off for a what-if. */
+  canToggle: boolean;
+  /** Switched off in the what-if (treated as a holiday). */
+  off: boolean;
 }
+
+export const WHAT_IF_NOTE = "Off in what-if";
 
 /**
  * The rows of a week: Monday to Friday, plus Saturday only when it is an extra
  * working day inside the window. Sunday is never shown.
+ *
+ * `settings` are the real ones; `offDays` are the days switched off in the
+ * what-if, and `plan` is the plan computed with them.
  */
-export function weekDays(week: Week, settings: Settings, plan: Plan): DayView[] {
+export function weekDays(week: Week, settings: Settings, plan: Plan, offDays: string[] = []): DayView[] {
   const saturday = addDays(week.monday, 5);
   const showSaturday =
     !!extraWorkingDayOn(settings, saturday) && saturday >= WINDOW_START && saturday <= settings.windowEnd;
@@ -42,12 +51,15 @@ export function weekDays(week: Week, settings: Settings, plan: Plan): DayView[] 
     if (!mutedNote && (date < WINDOW_START || date > settings.windowEnd)) mutedNote = "Outside plan";
     if (!mutedNote && settings.holidays.includes(date)) mutedNote = "Holiday";
     if (!mutedNote && date <= settings.baselineAsOf) mutedNote = "Already in baseline";
+    const canToggle = mutedNote === null;
+    const off = canToggle && offDays.includes(date);
+    if (off) mutedNote = WHAT_IF_NOTE;
     const sessions = mutedNote
       ? []
       : Object.values(plan.byId)
           .filter((s) => s.date === date)
           .sort((a, b) => a.startPeriod - b.startPeriod);
-    days.push({ date, mutedNote, extra: extraWorkingDayOn(settings, date) ?? null, sessions });
+    days.push({ date, mutedNote, extra: extraWorkingDayOn(settings, date) ?? null, sessions, canToggle, off });
   }
   return days;
 }

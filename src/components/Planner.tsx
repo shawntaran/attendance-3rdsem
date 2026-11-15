@@ -15,6 +15,7 @@ import {
 } from "@/lib/plan";
 import { THEME_KEY, defaultState, type AppState } from "@/lib/storage";
 import { endLabel, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
+import { loadOffDays, saveOffDays, summarizeWhatIf, withOffDays } from "@/lib/whatIf";
 import { getAccessKey } from "@/lib/accessKey";
 import { AccessKeyBanner } from "./AccessKeyBanner";
 import { ColorKey } from "./ColorKey";
@@ -29,6 +30,7 @@ import { SettingsDrawer } from "./SettingsDrawer";
 import { SyncIndicator } from "./SyncIndicator";
 import { Toast, type ToastData } from "./Toast";
 import { WeekTabs } from "./WeekTabs";
+import { WhatIfPanel } from "./WhatIfPanel";
 import { usePlannerSync } from "./usePlannerSync";
 import { SettingsIcon } from "./icons";
 
@@ -79,6 +81,8 @@ export function Planner() {
   const [settingsOpen, setSettingsOpen] = useState<"top" | "ods" | null>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [pulse, setPulse] = useState<{ key: number; ids: Set<string> }>({ key: 0, ids: new Set() });
+  // Days switched off to preview them as holidays. This device only, not synced.
+  const [offDays, setOffDays] = useState<string[]>([]);
 
   const undoState = useRef<AppState | null>(null);
   const counter = useRef(0);
@@ -93,6 +97,7 @@ export function Planner() {
     const onChange = () => setIsDesktop(mq.matches);
     setToday(now);
     setIsDesktop(mq.matches);
+    setOffDays(loadOffDays());
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
@@ -132,10 +137,38 @@ export function Planner() {
     setToast({ key: counter.current, message: "Updated with changes from another device.", canUndo: false });
   }, [sync.remoteRevision, ready]);
 
-  const plan = useMemo(
-    () => computePlan({ settings: state.settings, marks: state.marks, today }),
-    [state, today],
+  /** The plan shown everywhere: the real settings plus any what-if days off. */
+  const calcPlan = useCallback(
+    (settings: Settings, marks: Marks, off: string[] = offDays) =>
+      computePlan({ settings: withOffDays(settings, off), marks, today }),
+    [offDays, today],
   );
+  const plan = useMemo(() => calcPlan(state.settings, state.marks), [calcPlan, state]);
+  // The plan without the what-if, to compare against.
+  const realPlan = useMemo(
+    () => (offDays.length === 0 ? plan : computePlan({ settings: state.settings, marks: state.marks, today })),
+    [offDays.length, plan, state, today],
+  );
+  const whatIf = useMemo(() => (offDays.length === 0 ? null : summarizeWhatIf(realPlan, plan)), [offDays.length, realPlan, plan]);
+
+  useEffect(() => {
+    if (ready) saveOffDays(offDays);
+  }, [ready, offDays]);
+
+  /** Switch a day off (preview it as a holiday) or back on, and say what changed. */
+  function toggleDay(date: string) {
+    const nextOff = offDays.includes(date) ? offDays.filter((d) => d !== date) : [...offDays, date].sort();
+    const after = calcPlan(state.settings, state.marks, nextOff);
+    const turnedOff = nextOff.includes(date);
+    counter.current += 1;
+    setOffDays(nextOff);
+    setPulse({ key: counter.current, ids: new Set(diffPlans(plan, after).changedIds) });
+    setToast({
+      key: counter.current,
+      message: `${formatDate(date)} ${turnedOff ? "off (what-if holiday)" : "back on"}. ${budgetMessage(diffBudgets(plan, after))}`,
+      canUndo: false,
+    });
+  }
 
   useEffect(() => {
     if (!toast) return;
@@ -166,7 +199,7 @@ export function Planner() {
   }
 
   function commitMarks(nextMarks: Marks, lead: string, fallback: string) {
-    const after = computePlan({ settings: state.settings, marks: nextMarks, today });
+    const after = calcPlan(state.settings, nextMarks);
     const diff = diffPlans(plan, after);
     commit({ ...state, marks: nextMarks }, toastMessage(lead, diff, fallback), diff.changedIds, true);
   }
@@ -174,7 +207,7 @@ export function Planner() {
   /** An OD switch or its "already DL" box changed: recompute and report budgets. */
   function handleOdChange(odState: OdState) {
     const next: AppState = { ...state, settings: { ...state.settings, odState } };
-    const after = computePlan({ settings: next.settings, marks: next.marks, today });
+    const after = calcPlan(next.settings, next.marks);
     commit(next, budgetMessage(diffBudgets(plan, after)), diffPlans(plan, after).changedIds, true);
   }
 
@@ -194,7 +227,7 @@ export function Planner() {
     if (mark === "attended") {
       commitMarks(nextMarks, "Marked attended.", "Nothing else changes.");
     } else if (mark === "skipped") {
-      const after = computePlan({ settings: state.settings, marks: nextMarks, today });
+      const after = calcPlan(state.settings, nextMarks);
       const left = after.byCourse[session.course].skippableHours;
       commitMarks(nextMarks, "Marked skipped.", `${name} has ${fmtHours(left)} of skips left.`);
     } else {
@@ -205,7 +238,7 @@ export function Planner() {
   function handleUndo() {
     const previous = undoState.current;
     if (!previous) return;
-    const after = computePlan({ settings: previous.settings, marks: previous.marks, today });
+    const after = calcPlan(previous.settings, previous.marks);
     commit(previous, "Undone.", diffPlans(plan, after).changedIds, false);
   }
 
@@ -238,7 +271,7 @@ export function Planner() {
   // Never empty: windowEnd is at least WINDOW_START (a Wednesday), so week 1 always exists.
   const week = weeks[safeIndex];
   const end = endLabel(state.settings.windowEnd);
-  const days = useMemo(() => weekDays(week, state.settings, plan), [week, state.settings, plan]);
+  const days = useMemo(() => weekDays(week, state.settings, plan, offDays), [week, state.settings, plan, offDays]);
   const openSession: PlanSession | undefined = open ? plan.byId[open.id] : undefined;
   const od = odSummary(state.settings.odState);
   const onOpen = (session: PlanSession, trigger: HTMLElement) => setOpen({ id: session.id, anchor: trigger });
@@ -295,6 +328,23 @@ export function Planner() {
         <ConflictBanner conflict={sync.conflict} onResolve={(choice) => void sync.resolveConflict(choice)} />
       )}
 
+      {ready && whatIf && (
+        <WhatIfPanel
+          offDays={offDays}
+          summary={whatIf}
+          targetPct={state.settings.targetPct}
+          endLabel={end}
+          onRestore={toggleDay}
+          onReset={() => {
+            const after = calcPlan(state.settings, state.marks, []);
+            counter.current += 1;
+            setPulse({ key: counter.current, ids: new Set(diffPlans(plan, after).changedIds) });
+            setOffDays([]);
+            setToast({ key: counter.current, message: "All days back on.", canUndo: false });
+          }}
+        />
+      )}
+
       <div className="sticky top-0 z-20 -mx-3 mt-3 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:p-0">
         <WeekTabs weeks={weeks} selected={safeIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
       </div>
@@ -310,9 +360,23 @@ export function Planner() {
             className="mt-2 desk:mt-4"
           >
             {isDesktop ? (
-              <DesktopGrid days={days} today={today} pulseIds={pulse.ids} pulseKey={pulse.key} onOpen={onOpen} />
+              <DesktopGrid
+                days={days}
+                today={today}
+                pulseIds={pulse.ids}
+                pulseKey={pulse.key}
+                onOpen={onOpen}
+                onToggleDay={toggleDay}
+              />
             ) : (
-              <MobileDays days={days} today={today} pulseIds={pulse.ids} pulseKey={pulse.key} onOpen={onOpen} />
+              <MobileDays
+                days={days}
+                today={today}
+                pulseIds={pulse.ids}
+                pulseKey={pulse.key}
+                onOpen={onOpen}
+                onToggleDay={toggleDay}
+              />
             )}
           </div>
 

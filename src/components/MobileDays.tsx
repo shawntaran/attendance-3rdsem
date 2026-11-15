@@ -2,6 +2,7 @@ import { COURSE_NAME, sessionTimes } from "@/lib/config";
 import { formatDayMonth, weekdayName } from "@/lib/dates";
 import type { PlanSession } from "@/lib/plan";
 import { STATUS_LABEL, cellAriaLabel, extraChipLabel, extraSpoken, type DayView } from "@/lib/view";
+import { DayToggle } from "./DayToggle";
 import { StatusIcon } from "./icons";
 
 interface Props {
@@ -10,9 +11,10 @@ interface Props {
   pulseIds: Set<string>;
   pulseKey: number;
   onOpen: (session: PlanSession, trigger: HTMLElement) => void;
+  onToggleDay: (date: string) => void;
 }
 
-export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
+export function MobileDays({ days, today, pulseIds, pulseKey, onOpen, onToggleDay }: Props) {
   return (
     <div className="flex flex-col gap-3">
       {days.map((day) => {
@@ -20,12 +22,15 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
           return (
             <div
               key={day.date}
-              className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2.5 text-sm text-subtle"
+              className={`flex items-center justify-between gap-3 rounded-lg bg-muted px-3 text-sm text-subtle ${
+                day.canToggle ? "py-0.5 pr-1" : "py-2.5"
+              }`}
             >
               <span className="font-display font-bold text-ink">
                 {weekdayName(day.date)} {formatDayMonth(day.date)}
               </span>
-              <span className="text-right font-medium">{day.mutedNote}</span>
+              <span className="ml-auto text-right font-medium">{day.mutedNote}</span>
+              {day.canToggle && <DayToggle date={day.date} off={day.off} onToggle={onToggleDay} tone="light" />}
             </div>
           );
         }
@@ -46,6 +51,11 @@ export function MobileDays({ days, today, pulseIds, pulseKey, onOpen }: Props) {
               {isToday && (
                 <span className="ml-auto rounded-full bg-today px-2 py-0.5 text-[11px] font-bold text-[#14202b]">
                   Today
+                </span>
+              )}
+              {day.canToggle && (
+                <span className={`-my-2 -mr-2 ${isToday ? "" : "ml-auto"}`}>
+                  <DayToggle date={day.date} off={day.off} onToggle={onToggleDay} tone="dark" />
                 </span>
               )}
               {day.extra?.reason && <span className="w-full text-xs text-white/80">{day.extra.reason}</span>}
