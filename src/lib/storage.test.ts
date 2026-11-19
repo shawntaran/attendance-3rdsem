@@ -231,3 +231,16 @@ describe("v2 to v3 migration", () => {
     expect(store.data[STORAGE_KEY_V1]).toBeUndefined();
   });
 });
+
+describe("ODs added after a state was saved", () => {
+  it("a saved state without the 17-18 Nov OD keeps everything and gets the OD switched on", () => {
+    const state = defaultState();
+    state.marks["2026-11-12@1"] = "skipped";
+    state.settings.odState["od-2026-10-30"] = { on: false, inPortal: true };
+    const { ["od-2026-11-17"]: _gone, ...older } = state.settings.odState;
+    const parsed = parseState(JSON.stringify({ ...state, settings: { ...state.settings, odState: older } }));
+    expect(parsed.marks).toEqual(state.marks);
+    expect(parsed.settings.odState["od-2026-10-30"]).toEqual({ on: false, inPortal: true });
+    expect(parsed.settings.odState["od-2026-11-17"]).toEqual({ on: true, inPortal: false });
+  });
+});

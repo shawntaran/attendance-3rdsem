@@ -19,13 +19,14 @@ function Swatch({ status }: { status: SessionStatus }) {
 export function ColorKey({ settings }: { settings: Settings }) {
   const t = settings.targetPct;
   const end = endLabel(settings.windowEnd);
-  const od = odSummary(settings.odState);
+  const od = odSummary(settings);
   const cushion =
     settings.cushionHours > 0 ? `, with ${fmtHours(settings.cushionHours).replace("hrs", "hours").replace("hr", "hour")} to spare` : "";
   const rows: [SessionStatus, string][] = [
     ["skip-ok", `You can miss this class and still finish the course at ${t}% or more on ${end}${cushion}.`],
     ["attend", `Go. Skipping this one risks pushing the course under ${t}% by ${end}.`],
     ["attended", "You went."],
+    ["od", "On duty: covered by an OD you have switched on, so it counts as present."],
     ["unmarked", "Passed, not marked yet. Left out of your current %, and planned for as missed until you mark it."],
     ["skipped", "You missed it. Its hours came out of that course's allowance."],
   ];

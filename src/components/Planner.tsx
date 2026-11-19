@@ -283,7 +283,7 @@ export function Planner() {
   const end = endLabel(state.settings.windowEnd);
   const days = useMemo(() => weekDays(week, state.settings, plan, offDays), [week, state.settings, plan, offDays]);
   const openSession: PlanSession | undefined = open ? plan.byId[open.id] : undefined;
-  const od = odSummary(state.settings.odState);
+  const od = odSummary(state.settings);
   const onOpen = (session: PlanSession, trigger: HTMLElement) => setOpen({ id: session.id, anchor: trigger });
 
   return (

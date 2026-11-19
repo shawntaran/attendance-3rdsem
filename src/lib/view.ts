@@ -3,6 +3,7 @@
 import {
   COURSE_NAME,
   FIXED_MUTED_DAYS,
+  ODS,
   WEEKDAY_NAME,
   WEEKDAY_SHORT,
   WINDOW_START,
@@ -93,6 +94,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   "skip-ok": "Can skip",
   attend: "Attend",
   attended: "Attended",
+  od: "On duty",
   unmarked: "Not marked",
   skipped: "Skipped",
 };
@@ -101,6 +103,7 @@ const STATUS_SPOKEN: Record<SessionStatus, string> = {
   "skip-ok": "you can skip",
   attend: "you should attend",
   attended: "marked attended",
+  od: "on duty, counted as present",
   unmarked: "not marked yet",
   skipped: "marked skipped",
 };
@@ -124,9 +127,9 @@ export function timeRange(session: PlanSession): string {
  */
 export function cellAriaLabel(session: PlanSession, extra?: ExtraWorkingDay | null): string {
   const day = extra ? `${formatDate(session.date)}, ${extraSpoken(extra)}` : formatDate(session.date);
-  return `${COURSE_NAME[session.course]}, ${day}, ${timeRange(session)}, ${
-    STATUS_SPOKEN[session.status]
-  }. Press to change.`;
+  // An On duty class is set by its OD, not by a mark, so its popover only explains.
+  const action = session.status === "od" ? "Press for details." : "Press to change.";
+  return `${COURSE_NAME[session.course]}, ${day}, ${timeRange(session)}, ${STATUS_SPOKEN[session.status]}. ${action}`;
 }
 
 /** One-line explanation shown in the popover. */
@@ -142,6 +145,10 @@ export function reasonText(plan: Plan, session: PlanSession): string {
         : `Attend: ${name} has no skippable hours left.`;
     case "attended":
       return `Marked attended. ${name} is at ${fmtPct(course.currentPct)} now.`;
+    case "od": {
+      const od = ODS.find((x) => x.id === session.odId);
+      return `On duty${od ? ` (${od.reason})` : ""}: counted as present. To plan without it, switch the OD off in ODs.`;
+    }
     case "unmarked":
       return `This class has passed and is not marked yet, so it is left out of your current %. Until you mark it, the plan counts it as missed. Marking it attended gives ${name} ${fmtHours(session.span)} more skip budget.`;
     case "skipped":

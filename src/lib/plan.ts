@@ -7,8 +7,9 @@
 //      on or before baselineAsOf (those are already inside the baseline).
 //   2. Walk them from the baseline (P present, H held). P is the portal figure
 //      plus the hours of every OD that is switched on and not already in the
-//      portal; H is the portal figure as is. A marked session updates P and
-//      H. A past session with no mark is "unmarked": nothing is assumed about
+//      portal; H is the portal figure as is. A session on a day covered by a
+//      switched-on OD (an OD with plan `dates`) counts as present, whatever is
+//      marked. Otherwise a marked session updates P and H. A past session with no mark is "unmarked": nothing is assumed about
 //      it, so it is left out of P and H (u = its hours). Future sessions with
 //      no mark are the remaining list R.
 //   3. n = hours in R. Unmarked hours are planned for as if they were missed,
@@ -31,6 +32,7 @@ import {
   type Baseline,
   type CourseCode,
   type ExtraWorkingDay,
+  type OdLeave,
   type Settings,
   type Week,
 } from "./config";
@@ -44,6 +46,7 @@ export type SessionStatus =
   | "attend" // undecided, must attend
   | "attended" // marked attended
   | "unmarked" // past and not marked yet: not counted, planned for as missed
+  | "od" // on a day covered by a switched-on OD: counts as present
   | "skipped"; // marked skipped
 
 export interface PlanSession {
@@ -55,6 +58,8 @@ export interface PlanSession {
   span: number;
   course: CourseCode;
   status: SessionStatus;
+  /** For status "od": the OD covering this day. */
+  odId?: string;
 }
 
 export interface CoursePlan {
@@ -209,6 +214,34 @@ export function listSessions(settings: WindowSettings & Pick<Settings, "baseline
   return out;
 }
 
+/** Plan days covered by a switched-on OD, mapped to that OD's id. */
+export function odCoveredDates(settings: Pick<Settings, "odState">): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const od of ODS) {
+    if (!od.dates || !odAddsHours(settings.odState[od.id])) continue;
+    for (const d of od.dates) if (!out.has(d)) out.set(d, od.id);
+  }
+  return out;
+}
+
+/**
+ * Hours per course an OD covers: its baseline hours, or for an OD with plan
+ * dates, the hours of the classes on those days (holidays and dates already
+ * inside the baseline are left out, as in the plan).
+ */
+export function odHoursByCourse(od: OdLeave, settings: WindowSettings & Pick<Settings, "baselineAsOf">): Partial<Record<CourseCode, number>> {
+  if (!od.dates) return od.hours;
+  const out: Partial<Record<CourseCode, number>> = {};
+  for (const sess of listSessions(settings)) {
+    if (od.dates.includes(sess.date)) out[sess.course] = (out[sess.course] ?? 0) + sess.span;
+  }
+  return out;
+}
+
+export function odHoursTotal(od: OdLeave, settings: WindowSettings & Pick<Settings, "baselineAsOf">): number {
+  return Object.values(odHoursByCourse(od, settings)).reduce((sum, h) => sum + (h ?? 0), 0);
+}
+
 /** Hours per course added by the ODs that are on and not already in the portal. */
 export function countedOdHours(settings: Pick<Settings, "odState">): Record<CourseCode, number> {
   const out = Object.fromEntries(COURSES.map((c) => [c.code, 0])) as Record<CourseCode, number>;
@@ -239,6 +272,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
   const t = settings.targetPct / 100;
   const baseline = effectiveBaseline(settings);
   const odHours = countedOdHours(settings);
+  const odDays = odCoveredDates(settings);
   const all = listSessions(settings);
 
   const courses: CoursePlan[] = [];
@@ -248,6 +282,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
     const raw = all.filter((s) => s.course === course.code);
     let [present, held] = baseline[course.code];
     let skipHoursUsed = 0;
+    let odSessionHours = 0;
 
     const sessions: PlanSession[] = [];
     const remaining: PlanSession[] = [];
@@ -256,20 +291,23 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
     for (const s of raw) {
       const mark = marks[s.id];
       let status: SessionStatus;
-      if (mark === "attended") status = "attended";
+      const odId = odDays.get(s.date);
+      if (odId) status = "od";
+      else if (mark === "attended") status = "attended";
       else if (mark === "skipped") status = "skipped";
       else if (s.date < today) status = "unmarked";
       else status = "attend"; // provisional, greens are assigned below
 
-      if (status === "attended") {
+      if (status === "attended" || status === "od") {
         present += s.span;
         held += s.span;
+        if (status === "od") odSessionHours += s.span;
       } else if (status === "skipped") {
         held += s.span;
         skipHoursUsed += s.span;
       }
 
-      const session: PlanSession = { ...s, status };
+      const session: PlanSession = odId ? { ...s, status, odId } : { ...s, status };
       sessions.push(session);
       if (status === "attend") remaining.push(session);
       if (status === "unmarked") unmarked.push(session);
@@ -302,7 +340,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
       present,
       held,
       currentPct: pct(present, held),
-      odHours: odHours[course.code],
+      odHours: odHours[course.code] + odSessionHours,
       sessions,
       remaining,
       remainingHours: n,

@@ -257,9 +257,15 @@ export interface OdLeave {
   unconfirmed?: boolean;
   /**
    * Absent hours sitting in the portal baseline that this OD would turn into
-   * present hours, per course.
+   * present hours, per course. Empty for an OD that covers plan days instead.
    */
   hours: Partial<Record<CourseCode, number>>;
+  /**
+   * Days inside the plan window this OD covers. While the OD is switched on,
+   * every class on these days counts as present (shown as "On duty"), whatever
+   * is marked there. The hours come from the timetable, not from `hours`.
+   */
+  dates?: string[];
 }
 
 export const ODS: OdLeave[] = [
@@ -323,12 +329,22 @@ export const ODS: OdLeave[] = [
     reason: "Alliance hackathon",
     hours: { CSE2257: 1, CSE2251: 1, CSE2259: 2, CSE2253: 1, CSE2258: 1, MAT2303: 1 },
   },
+  {
+    // Inside the plan: covers every class on both days (12 hours by the timetable).
+    id: "od-2026-11-17",
+    date: "2026-11-17",
+    reason: "STEM for Impact Hackathon",
+    hours: {},
+    dates: ["2026-11-17", "2026-11-18"],
+  },
 ];
 
+/** Baseline hours only; an OD covering plan days counts its hours from the timetable (see plan.ts). */
 export function odTotalHours(od: OdLeave): number {
   return Object.values(od.hours).reduce((sum, h) => sum + (h ?? 0), 0);
 }
 
+/** Absent hours in the portal baseline that all baseline ODs together can turn into present. */
 export const OD_TOTAL_HOURS = ODS.reduce((sum, od) => sum + odTotalHours(od), 0);
 
 export interface OdToggle {

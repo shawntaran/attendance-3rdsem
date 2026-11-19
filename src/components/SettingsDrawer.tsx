@@ -138,7 +138,7 @@ export function SettingsDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <OdSection odState={settings.odState} autoFocus={focusOds} onChange={onOdChange} />
+          <OdSection settings={settings} odState={settings.odState} autoFocus={focusOds} onChange={onOdChange} />
 
           <fieldset className="mt-5">
             <legend className="text-sm font-bold">Theme</legend>

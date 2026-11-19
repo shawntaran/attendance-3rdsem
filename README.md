@@ -106,15 +106,23 @@ The app keeps two things apart:
   them on `baselineAsOf` (DL counted as present, SUS excluded). An OD the portal has not approved
   yet is still an absence in these numbers. Defaults: `PORTAL_BASELINE` in
   [`src/lib/config.ts`](src/lib/config.ts), as of 2026-11-10.
-- **ODs.** The 10 on-duty leaves in `ODS` (40 hours in total). Each lists, per course, the absent
-  hours in the baseline that it would turn into present hours.
+- **ODs.** The on-duty leaves in `ODS`. There are two kinds:
+  - **Baseline ODs** (10, 40 hours in total), from before 10 Nov. Each lists, per course, the
+    absent hours in the baseline that it would turn into present hours.
+  - **Plan ODs**, with `dates` inside the plan window. While switched on, every class on those days
+    counts as present (attended and held) and shows as **On duty**, whatever is marked there;
+    switching the OD off brings the marks back. Their hours come from the timetable. Currently one:
+    the **STEM for Impact Hackathon**, Tue 17 and Wed 18 Nov (12 hours).
+
+  A saved state from before an OD was added simply gets that OD switched on; nothing else in it
+  changes.
 
 Each OD has two flags, saved as `odState[odId] = { on, inPortal }`:
 
 | Flag | Meaning |
 | --- | --- |
-| `on` | Count this OD's hours as present. Default: on for all ten. |
-| `inPortal` | "Already shows DL on the portal": the hours are already inside the baseline, so the OD adds nothing and its switch is disabled. This is what stops double counting. Default: off. |
+| `on` | Count this OD's hours as present. Default: on for every OD. |
+| `inPortal` | "Already shows DL on the portal": the hours are already inside the baseline, so the OD adds nothing and its switch is disabled. This is what stops double counting. Default: off. Baseline ODs only; a plan OD's days drop out of the plan by themselves once `baselineAsOf` moves past them. |
 
 The baseline the rules start from is then:
 
@@ -124,10 +132,10 @@ H(course) = portal held(course)        (unchanged: those hours are already held,
 ```
 
 Everything after that (marks, past days, budget formula, latest-first allocation) is the same as
-above. With all ten on you get the old "ODs granted" numbers, with none the old "ODs pending"
-numbers.
+above. With all ten baseline ODs on you get the old "ODs granted" numbers, with none the old
+"ODs pending" numbers.
 
-In the app: the **ODs 10/10** button in the header (or **Settings**) opens the list. Each row has
+In the app: the **ODs 11/11** button in the header (or **Settings**) opens the list. Each row has
 the date, the reason, the hours per course, a switch, and the "Already shows DL on the portal"
 box. "Count all" and "Count none" flip every switch. Each change shows a toast such as
 "Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0" with an Undo, and the allowance table

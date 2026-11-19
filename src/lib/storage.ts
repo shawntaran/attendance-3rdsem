@@ -65,11 +65,20 @@ function parseBaseline(v: unknown): Baseline {
 }
 
 /** Every known OD must have a valid entry; unknown ids are dropped. */
+/**
+ * Every known OD gets an entry. An OD added to the app after the state was
+ * saved is missing from it: it gets the default (counted), instead of the
+ * whole saved state being rejected. A present but malformed entry still fails.
+ */
 function parseOdState(v: unknown): OdState {
   if (!isObject(v)) throw new Error("odState");
   const out: OdState = {};
   for (const od of ODS) {
     const t = v[od.id];
+    if (t === undefined) {
+      out[od.id] = { on: true, inPortal: false };
+      continue;
+    }
     if (!isObject(t) || typeof t.on !== "boolean" || typeof t.inPortal !== "boolean") {
       throw new Error(`odState ${od.id}`);
     }

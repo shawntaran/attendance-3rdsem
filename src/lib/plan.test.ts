@@ -17,6 +17,8 @@ import {
   diffBudgets,
   diffPlans,
   effectiveBaseline,
+  odHoursByCourse,
+  odHoursTotal,
   finalPctIfSkipping,
   listSessions,
   type Marks,
@@ -26,16 +28,29 @@ import {
 /** The two combinations the old global scenario switch offered. */
 type Scenario = "odsGranted" | "odsPending";
 
+/** The OD for 17-18 Nov covers plan days and is tested on its own below. */
+const PLAN_OD = "od-2026-11-17";
+
+/**
+ * Every baseline OD on (or off), with the plan-day OD off. The fixtures in
+ * this file describe the engine on the 10 Nov baseline before that OD existed.
+ */
+function baselineOds(on: boolean): OdState {
+  const state = odStateAll(on);
+  state[PLAN_OD] = { on: false, inPortal: false };
+  return state;
+}
+
 /** All ODs on, except the listed ids. */
 function allExcept(...ids: string[]): OdState {
-  const state = odStateAll(true);
+  const state = baselineOds(true);
   for (const id of ids) state[id] = { on: false, inPortal: false };
   return state;
 }
 
 /** All ODs off, except the listed ids. */
 function only(...ids: string[]): OdState {
-  const state = odStateAll(false);
+  const state = baselineOds(false);
   for (const id of ids) state[id] = { on: true, inPortal: false };
   return state;
 }
@@ -56,7 +71,7 @@ const NEW_WINDOW: Partial<Settings> = {
 function plan(
   opts: { scenario?: Scenario; ods?: OdState; today?: string; marks?: Marks; extra?: Partial<Settings> } = {},
 ): Plan {
-  const odState = opts.ods ?? odStateAll(opts.scenario !== "odsPending");
+  const odState = opts.ods ?? baselineOds(opts.scenario !== "odsPending");
   return computePlan({
     settings: { ...defaultSettings(), ...OLD_WINDOW, odState, ...opts.extra },
     marks: opts.marks ?? {},
@@ -354,22 +369,23 @@ describe("settings", () => {
 });
 
 describe("on-duty leaves", () => {
-  it("has 10 ODs totalling 40 hours", () => {
-    expect(ODS).toHaveLength(10);
+  it("has 10 baseline ODs totalling 40 hours, plus the 17-18 Nov plan OD", () => {
+    expect(ODS).toHaveLength(11);
+    expect(ODS.filter((od) => !od.dates)).toHaveLength(10);
     expect(OD_TOTAL_HOURS).toBe(40);
-    expect(new Set(ODS.map((od) => od.id)).size).toBe(10);
+    expect(new Set(ODS.map((od) => od.id)).size).toBe(11);
     expect(ODS.map((od) => od.date)).toEqual([...ODS.map((od) => od.date)].sort());
   });
 
   it("portal baseline plus every OD gives the old granted numbers", () => {
-    const eff = effectiveBaseline({ baseline: PORTAL_BASELINE, odState: odStateAll(true) });
+    const eff = effectiveBaseline({ baseline: PORTAL_BASELINE, odState: baselineOds(true) });
     // CSE2257 is 35, one above the old granted 34: the 4 Sep OD now covers its hour too.
     // CSE2253 30, MAT2303 31, CSE2258 32: the swap-week correction (baseline revision 2).
     expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 35, 30, 31, 26, 32, 24, 20]);
     // Held never changes.
     expect(COURSE_CODES.map((c) => eff[c][1])).toEqual(COURSE_CODES.map((c) => PORTAL_BASELINE[c][1]));
     // And with none it is the portal as is.
-    expect(effectiveBaseline({ baseline: PORTAL_BASELINE, odState: odStateAll(false) })).toEqual(PORTAL_BASELINE);
+    expect(effectiveBaseline({ baseline: PORTAL_BASELINE, odState: baselineOds(false) })).toEqual(PORTAL_BASELINE);
   });
 
   it("defaults count every OD", () => {
@@ -380,11 +396,11 @@ describe("on-duty leaves", () => {
   });
 
   it("all ODs on", () => {
-    expect(budgetList(plan({ ods: odStateAll(true) }))).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 7, 6, 5]);
+    expect(budgetList(plan({ ods: baselineOds(true) }))).toEqual([8, 5, 5, 2, 9, 5, 5, 5, 7, 6, 5]);
   });
 
   it("all ODs off", () => {
-    expect(budgetList(plan({ ods: odStateAll(false) }))).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 5]);
+    expect(budgetList(plan({ ods: baselineOds(false) }))).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 5]);
   });
 
   it("all on except od-2026-10-30", () => {
@@ -410,7 +426,7 @@ describe("on-duty leaves", () => {
   it("inPortal adds nothing, same as switching the OD off", () => {
     const off = plan({ ods: allExcept("od-2026-10-30") });
     for (const on of [true, false]) {
-      const ods = odStateAll(true);
+      const ods = baselineOds(true);
       ods["od-2026-10-30"] = { on, inPortal: true };
       const inPortal = plan({ ods });
       expect(budgetList(inPortal)).toEqual(budgetList(off));
@@ -421,8 +437,8 @@ describe("on-duty leaves", () => {
 
   it("greens are always the last g remaining sessions, whatever the toggles", () => {
     const combos: OdState[] = [
-      odStateAll(true),
-      odStateAll(false),
+      baselineOds(true),
+      baselineOds(false),
       ...ODS.map((od) => allExcept(od.id)),
       ...ODS.map((od) => only(od.id)),
       only("od-2026-08-12", "od-2026-09-15", "od-2026-09-16", "od-2026-09-17", "od-2026-09-24"),
@@ -505,7 +521,7 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
   });
 
   it("all ODs off", () => {
-    const off = plan({ ods: odStateAll(false), extra: NEW_WINDOW });
+    const off = plan({ ods: baselineOds(false), extra: NEW_WINDOW });
     expect(budgetList(off)).toEqual([4, 3, 0, 0, 4, 1, 0, 3, 3, 1, 6]);
     expect(greenCounts(off)).toEqual([4, 1, 0, 0, 4, 1, 0, 3, 3, 0, 3]);
     expect(off.greenHoursByWeek).toEqual([0, 0, 10, 13]);
@@ -587,7 +603,7 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
   });
 
   it("greens are always the last g remaining sessions", () => {
-    for (const ods of [odStateAll(true), odStateAll(false), allExcept("od-2026-10-30")]) {
+    for (const ods of [baselineOds(true), baselineOds(false), allExcept("od-2026-10-30")]) {
       for (const today of ["2026-11-11", "2026-11-25", "2026-12-03"]) {
         const q = plan({ ods, today, extra: NEW_WINDOW, marks: { "2026-12-05@1": "skipped" } });
         for (const c of q.courses) {
@@ -596,6 +612,61 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
           expect(c.remaining.map((s) => s.status)).toEqual(expected);
         }
       }
+    }
+  });
+});
+
+describe("STEM for Impact Hackathon OD, 17-18 Nov", () => {
+  const od = ODS.find((x) => x.id === PLAN_OD)!;
+  const run = (on: boolean, today: string, marks: Marks = {}) => {
+    const ods = baselineOds(true);
+    ods[PLAN_OD] = { on, inPortal: false };
+    return plan({ ods, today, marks, extra: NEW_WINDOW });
+  };
+
+  it("covers every class on both days: 12 hours by the timetable", () => {
+    expect(od.dates).toEqual(["2026-11-17", "2026-11-18"]);
+    expect(od.hours).toEqual({});
+    expect(odHoursByCourse(od, defaultSettings())).toEqual({
+      CSE2257: 2, // Tue p1, Wed p3
+      CSE2255: 2, // Tue p2, Wed p4
+      CSE2252: 2, // Tue p3-4
+      CSE2251: 1, // Tue p6
+      CSE2258: 1, // Tue p7
+      CSE2253: 1, // Tue p8
+      APT4002: 2, // Wed p1-2
+      MAT2303: 1, // Wed p6
+    });
+    expect(odHoursTotal(od, defaultSettings())).toBe(12);
+    // It is on by default.
+    expect(defaultSettings().odState[PLAN_OD]).toEqual({ on: true, inPortal: false });
+  });
+
+  it("while on, those classes count as present and are not left unmarked", () => {
+    const on = run(true, "2026-11-19");
+    const off = run(false, "2026-11-19");
+    expect(on.byId["2026-11-18@6"]).toMatchObject({ status: "od", odId: PLAN_OD });
+    expect(off.byId["2026-11-18@6"].status).toBe("unmarked");
+    expect(on.byCourse.MAT2303.present).toBe(off.byCourse.MAT2303.present + 1);
+    expect(on.byCourse.MAT2303.held).toBe(off.byCourse.MAT2303.held + 1);
+    expect(on.byCourse.MAT2303.odHours).toBe(off.byCourse.MAT2303.odHours + 1);
+    expect(on.unmarkedCount).toBe(off.unmarkedCount - 10); // 10 classes over the two days
+    for (const c of on.courses) expect(c.budgetHours).toBeGreaterThanOrEqual(off.byCourse[c.code].budgetHours);
+  });
+
+  it("overrides marks on those days while on; switching it off brings them back", () => {
+    const marks: Marks = { "2026-11-17@1": "skipped" };
+    expect(run(true, "2026-11-19", marks).byId["2026-11-17@1"].status).toBe("od");
+    expect(run(true, "2026-11-19", marks).byCourse.CSE2257.skipHoursUsed).toBe(0);
+    expect(run(false, "2026-11-19", marks).byId["2026-11-17@1"].status).toBe("skipped");
+  });
+
+  it("viewed from before the days, it works like attending them: same final %, no greens there", () => {
+    const on = run(true, "2026-11-11");
+    const off = run(false, "2026-11-11");
+    for (const c of on.courses) {
+      expect(c.finalPctIfAttendAll).toBeCloseTo(off.byCourse[c.code].finalPctIfAttendAll, 9);
+      expect(c.remaining.some((s) => s.date === "2026-11-17" || s.date === "2026-11-18")).toBe(false);
     }
   });
 });

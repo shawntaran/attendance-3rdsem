@@ -1,17 +1,20 @@
 import {
   COURSE_NAME,
   ODS,
-  OD_TOTAL_HOURS,
   odCounted,
-  odTotalHours,
   type CourseCode,
+  type OdLeave,
   type OdState,
   type OdToggle,
+  type Settings,
 } from "@/lib/config";
 import { formatDate } from "@/lib/dates";
+import { odHoursByCourse, odHoursTotal } from "@/lib/plan";
 import { fmtHours } from "@/lib/view";
 
 interface Props {
+  /** Needed for ODs that cover plan days: their hours come from the timetable. */
+  settings: Settings;
   odState: OdState;
   /** Move focus to this section when the drawer opens. */
   autoFocus: boolean;
@@ -23,22 +26,33 @@ const SORTED = [...ODS].sort((a, b) => a.date.localeCompare(b.date));
 const shortcutBtn =
   "min-h-11 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal disabled:text-subtle disabled:hover:border-line";
 
-export function odSummary(odState: OdState): { counted: number; hours: number; inPortal: number } {
+export function odSummary(
+  settings: Settings,
+  odState: OdState = settings.odState,
+): { counted: number; hours: number; totalHours: number; inPortal: number } {
   let counted = 0;
   let hours = 0;
+  let totalHours = 0;
   let inPortal = 0;
   for (const od of ODS) {
     const t = odState[od.id];
+    const h = odHoursTotal(od, settings);
+    totalHours += h;
     if (t?.inPortal) inPortal++;
     if (!odCounted(t)) continue;
     counted++;
-    hours += odTotalHours(od);
+    hours += h;
   }
-  return { counted, hours, inPortal };
+  return { counted, hours, totalHours, inPortal };
 }
 
-export function OdSection({ odState, autoFocus, onChange }: Props) {
-  const summary = odSummary(odState);
+/** "Tue 17 Nov" or, for an OD over several plan days, "Tue 17 Nov, Wed 18 Nov". */
+function odDateLabel(od: OdLeave): string {
+  return (od.dates ?? [od.date]).map(formatDate).join(", ");
+}
+
+export function OdSection({ settings, odState, autoFocus, onChange }: Props) {
+  const summary = odSummary(settings, odState);
 
   function set(id: string, patch: Partial<OdToggle>) {
     onChange({ ...odState, [id]: { ...odState[id], ...patch } });
@@ -74,7 +88,7 @@ export function OdSection({ odState, autoFocus, onChange }: Props) {
       </div>
 
       <p className="mt-2 text-sm font-semibold" aria-live="polite">
-        Counting {summary.counted} of {ODS.length} ODs ({summary.hours} of {OD_TOTAL_HOURS} hours)
+        Counting {summary.counted} of {ODS.length} ODs ({summary.hours} of {summary.totalHours} hours)
         {summary.inPortal > 0 && (
           <span className="block text-xs font-normal text-subtle">
             {summary.inPortal} already {summary.inPortal === 1 ? "shows" : "show"} DL on the portal, so{" "}
@@ -86,14 +100,20 @@ export function OdSection({ odState, autoFocus, onChange }: Props) {
       <ul className="mt-2 flex flex-col gap-2">
         {SORTED.map((od) => {
           const t = odState[od.id];
-          const total = odTotalHours(od);
+          const byCourse = odHoursByCourse(od, settings);
+          const total = odHoursTotal(od, settings);
           const titleId = `${od.id}-title`;
           return (
             <li key={od.id} className="rounded-lg border border-line bg-surface p-3">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p id={titleId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="font-display text-sm font-bold">{formatDate(od.date)}</span>
+                    <span className="font-display text-sm font-bold">{odDateLabel(od)}</span>
+                    {od.dates && (
+                      <span className="state-od rounded-full border px-1.5 py-px text-[11px] font-bold">
+                        In the plan
+                      </span>
+                    )}
                     {od.unconfirmed && (
                       <span className="state-skipped rounded-full border px-1.5 py-px text-[11px] font-bold">
                         Unconfirmed
@@ -133,13 +153,19 @@ export function OdSection({ odState, autoFocus, onChange }: Props) {
               </div>
 
               <ul className="mt-1.5 flex flex-wrap gap-1" aria-label="Hours per course">
-                {(Object.entries(od.hours) as [CourseCode, number][]).map(([code, hours]) => (
+                {(Object.entries(byCourse) as [CourseCode, number][]).map(([code, hours]) => (
                   <li key={code} className="rounded-full bg-empty px-2 py-0.5 text-xs font-medium">
                     {COURSE_NAME[code]} +{hours}
                   </li>
                 ))}
               </ul>
 
+              {od.dates ? (
+                <p className="mt-1.5 text-xs text-subtle">
+                  While on, every class on {od.dates.length === 1 ? "this day" : "these days"} counts as present
+                  (shown as On duty), whatever is marked there.
+                </p>
+              ) : (
               <label className="mt-1 flex min-h-11 cursor-pointer items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -149,6 +175,7 @@ export function OdSection({ odState, autoFocus, onChange }: Props) {
                 />
                 Already shows DL on the portal
               </label>
+              )}
             </li>
           );
         })}

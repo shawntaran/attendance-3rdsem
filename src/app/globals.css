@@ -137,7 +137,8 @@ button:disabled {
   border-color: var(--color-must-border);
   color: var(--color-must-ink);
 }
-.state-attended {
+.state-attended,
+.state-od {
   background: var(--color-done-bg);
   border-color: var(--color-done-border);
   color: var(--color-done-ink);

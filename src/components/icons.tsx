@@ -104,6 +104,7 @@ export function StatusIcon({ status, ...p }: IconProps & { status: SessionStatus
     case "attend":
       return <AlertCircleIcon {...p} />;
     case "attended":
+    case "od":
       return <CheckCircleIcon {...p} />;
     case "unmarked":
       return <QuestionIcon {...p} />;
