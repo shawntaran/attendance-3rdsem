@@ -8,6 +8,7 @@
 import {
   BASELINE_CORRECTIONS,
   BASELINE_REVISION,
+  EXTRA_DAY_ADDITIONS,
   COURSE_CODES,
   MAX_WINDOW_END,
   ODS,
@@ -168,6 +169,7 @@ export function migrateState(state: AppState): AppState {
   const from = state.settings.baselineRevision ?? 1;
   if (from >= BASELINE_REVISION) return state;
   const baseline = { ...state.settings.baseline };
+  const extraWorkingDays = [...state.settings.extraWorkingDays];
   for (let rev = from + 1; rev <= BASELINE_REVISION; rev++) {
     for (const [code, step] of Object.entries(BASELINE_CORRECTIONS[rev] ?? {})) {
       if (!step) continue;
@@ -177,10 +179,14 @@ export function migrateState(state: AppState): AppState {
         baseline[code as CourseCode] = [newValue[0], newValue[1]];
       }
     }
+    for (const day of EXTRA_DAY_ADDITIONS[rev] ?? []) {
+      if (!extraWorkingDays.some((x) => x.date === day.date)) extraWorkingDays.push({ ...day });
+    }
   }
+  extraWorkingDays.sort((a, b) => a.date.localeCompare(b.date));
   return {
     ...state,
-    settings: { ...state.settings, baseline, baselineRevision: BASELINE_REVISION },
+    settings: { ...state.settings, baseline, extraWorkingDays, baselineRevision: BASELINE_REVISION },
   };
 }
 

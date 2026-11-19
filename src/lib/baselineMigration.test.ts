@@ -39,8 +39,8 @@ function store(data: Record<string, string>) {
 describe("defaults", () => {
   it("held hours total 313 and new states start at the current revision", () => {
     expect(COURSE_CODES.reduce((sum, c) => sum + PORTAL_BASELINE[c][1], 0)).toBe(313);
-    expect(BASELINE_REVISION).toBe(2);
-    expect(defaultState().settings.baselineRevision).toBe(2);
+    expect(BASELINE_REVISION).toBe(3);
+    expect(defaultState().settings.baselineRevision).toBe(3);
     expect(migrateState(defaultState())).toEqual(defaultState());
   });
 });
@@ -49,7 +49,7 @@ describe("migrateState", () => {
   it("replaces untouched old defaults with the corrected numbers", () => {
     const m = migrateState(oldState());
     expect(m.settings.baseline).toMatchObject(NEW);
-    expect(m.settings.baselineRevision).toBe(2);
+    expect(m.settings.baselineRevision).toBe(3);
     // The other eight courses are unchanged.
     for (const c of COURSE_CODES.filter((c) => !(c in NEW))) expect(m.settings.baseline[c]).toEqual(PORTAL_BASELINE[c]);
   });
@@ -87,7 +87,7 @@ describe("migrateState", () => {
 describe("validators", () => {
   it("accept states with and without baselineRevision, and reject a bad one", () => {
     expect(validateState(oldState()).settings.baselineRevision).toBeUndefined();
-    expect(validateState(defaultState()).settings.baselineRevision).toBe(2);
+    expect(validateState(defaultState()).settings.baselineRevision).toBe(3);
     const bad = defaultState() as unknown as { settings: Record<string, unknown> };
     bad.settings.baselineRevision = "2";
     expect(tryValidateState(bad)).toBeNull();
@@ -128,7 +128,7 @@ describe("legacy chain", () => {
     });
     const state = readLegacy(store({ [STORAGE_KEY_V1]: raw }))!.state;
     expect(state.settings.baseline).toMatchObject(NEW);
-    expect(state.settings.baselineRevision).toBe(2);
+    expect(state.settings.baselineRevision).toBe(3);
   });
 });
 
@@ -174,5 +174,44 @@ describe("cache and merge", () => {
     const d = syncWithMigration(rec, { state: oldState(), version: 2, updatedAt: null }, "now");
     expect(d.record.conflict).toBeNull();
     expect(d.legacyVerified).toBe(true);
+  });
+});
+
+describe("revision 3: Sat 21 Nov working day", () => {
+  const SAT = { date: "2026-11-21", followsWeekday: 1, reason: "Saturday working day" };
+
+  it("adds 21 Nov to a revision-2 state, keeping its other days", () => {
+    const s = defaultState();
+    s.settings.baselineRevision = 2;
+    s.settings.extraWorkingDays = [{ date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" }];
+    const m = migrateState(s);
+    expect(m.settings.extraWorkingDays.map((x) => x.date)).toEqual(["2026-11-21", "2026-12-05"]);
+    expect(m.settings.extraWorkingDays[0]).toEqual(SAT);
+    expect(m.settings.baselineRevision).toBe(3);
+  });
+
+  it("keeps an entry for 21 Nov set by hand", () => {
+    const s = defaultState();
+    s.settings.baselineRevision = 2;
+    s.settings.extraWorkingDays = [{ date: "2026-11-21", followsWeekday: 5, reason: "mine" }];
+    expect(migrateState(s).settings.extraWorkingDays).toEqual([{ date: "2026-11-21", followsWeekday: 5, reason: "mine" }]);
+  });
+
+  it("does not bring 21 Nov back once removed at revision 3", () => {
+    const s = defaultState();
+    s.settings.extraWorkingDays = s.settings.extraWorkingDays.filter((x) => x.date !== "2026-11-21");
+    expect(migrateState(s)).toBe(s);
+  });
+
+  it("a revision-1 state gets the baseline correction and the new day", () => {
+    const m = migrateState(oldState());
+    expect(m.settings.baseline).toMatchObject(NEW);
+    expect(m.settings.extraWorkingDays.some((x) => x.date === "2026-11-21")).toBe(true);
+  });
+
+  it("two devices migrating on their own end up identical", () => {
+    const a = migrateState(oldState());
+    const b = migrateState(oldState());
+    expect(statesEqual(a, b)).toBe(true);
   });
 });

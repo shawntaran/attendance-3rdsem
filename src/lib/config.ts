@@ -77,6 +77,7 @@ export interface ExtraWorkingDay {
 }
 
 export const DEFAULT_EXTRA_WORKING_DAYS: ExtraWorkingDay[] = [
+  { date: "2026-11-21", followsWeekday: 1, reason: "Saturday working day" },
   { date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" },
 ];
 
@@ -217,12 +218,16 @@ export const PORTAL_BASELINE: Baseline = {
 };
 
 /**
- * Saved states carry the revision of the default baseline they were made
- * with (`settings.baselineRevision`, missing = 1). Raise this and add a step to
- * BASELINE_CORRECTIONS whenever the defaults are corrected, so devices and the
- * cloud copy pick the correction up (see migrateState in storage.ts).
+ * Saved states carry the revision of the defaults they were brought up to
+ * (`settings.baselineRevision`, missing = 1). Raise this and add a step to
+ * BASELINE_CORRECTIONS or EXTRA_DAY_ADDITIONS whenever a default that is saved
+ * in the state changes, so devices and the cloud copy pick it up (see
+ * migrateState in storage.ts).
+ *
+ *   2: swap-week baseline correction
+ *   3: Sat 21 Nov added as a working day on Monday's timetable
  */
-export const BASELINE_REVISION = 2;
+export const BASELINE_REVISION = 3;
 
 /**
  * Per revision: courses whose default changed, as [old default, new default].
@@ -244,6 +249,14 @@ export const BASELINE_CORRECTIONS: Record<number, Partial<Record<CourseCode, [[n
       [25, 37],
     ],
   },
+};
+
+/**
+ * Per revision: extra working days to add to saved states. A day is only added
+ * if the state has no entry for that date yet, so one set by hand is kept.
+ */
+export const EXTRA_DAY_ADDITIONS: Record<number, ExtraWorkingDay[]> = {
+  3: [{ date: "2026-11-21", followsWeekday: 1, reason: "Saturday working day" }],
 };
 
 // ---- On-duty leaves (OD) ---------------------------------------------------

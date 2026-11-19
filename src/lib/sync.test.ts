@@ -496,7 +496,7 @@ describe("swap-week baseline correction", () => {
     expect(a.engine.getSnapshot().state.settings.baseline).toMatchObject(NEW);
     expect(server.saves).toBe(1); // pushed exactly once
     expect(server.repo.record?.version).toBe(2);
-    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 2 });
+    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 3 });
 
     await b.engine.start();
     expect(b.engine.getSnapshot().conflict).toBeNull();

@@ -151,10 +151,15 @@ shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in i
   "No classes: term ended 1 Dec") and win over an extra working day on the same date. Sat 5 Dec is
   the only teaching day after 1 Dec.
 - **Extra working days:** `extraWorkingDays`, a list of `{ date, followsWeekday, reason }`, edited
-  in **Settings > Extra working days**. The default is Sat 5 Dec following Monday's timetable
-  (MAT2303 period 1, CSE2255 period 2, CSE2254 periods 3 to 4), the make-up for the Mon 9 Nov
-  holiday. A day must be inside the window and not a Sunday. A holiday on the same date wins.
-  A listed day that falls outside the window after "Plan until" moves is kept but ignored.
+  in **Settings > Extra working days**. The defaults are two Saturdays on Monday's timetable
+  (MAT2303 period 1, CSE2255 period 2, CSE2254 periods 3 to 4): **Sat 21 Nov** and **Sat 5 Dec**,
+  the make-up for the Mon 9 Nov holiday. A day must be inside the window and not a Sunday. A
+  holiday on the same date wins. A listed day that falls outside the window after "Plan until"
+  moves is kept but ignored.
+
+  Saved states already have their own list, so a new default day reaches them through a revision
+  step (`EXTRA_DAY_ADDITIONS` in `config.ts`, revision 3 for 21 Nov): it is added once if the state
+  has no entry for that date. One you set by hand, or remove afterwards, is left as it is.
 
 Weeks are built from the window, Monday-based, so tabs appear or disappear when "Plan until"
 moves. A week shows Monday to Friday, plus a Saturday row only when that Saturday is an extra
@@ -340,8 +345,8 @@ values count as a normal local change and are saved to the cloud once.
 1. Edit `PORTAL_BASELINE` and `BASELINE_AS_OF` in [`src/lib/config.ts`](src/lib/config.ts). Remove
    an OD from `ODS` once the portal counts it for good, or add new ones.
 2. If devices or the cloud already hold the old numbers, raise `BASELINE_REVISION` and add a step to
-   `BASELINE_CORRECTIONS` listing each changed course as `[old default, new default]`. Devices then
-   pick it up on their next load.
+   `BASELINE_CORRECTIONS` listing each changed course as `[old default, new default]` (or to
+   `EXTRA_DAY_ADDITIONS` for a new working day). Devices then pick it up on their next load.
 3. `npm test` will now fail on the fixtures in `src/lib/plan.test.ts`, because they are written
    for the current baseline and these ten ODs. Update or remove those expectations.
 4. Commit and push. Vercel redeploys on its own.

@@ -192,7 +192,10 @@ describe("v2 to v3 migration", () => {
       settings: {
         ...old.settings,
         windowEnd: "2026-12-05",
-        extraWorkingDays: [{ date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" }],
+        extraWorkingDays: [
+          { date: "2026-11-21", followsWeekday: 1, reason: "Saturday working day" },
+          { date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" },
+        ],
       },
       marks: old.marks,
     });
@@ -227,7 +230,7 @@ describe("v2 to v3 migration", () => {
     const store = memoryStore({ [STORAGE_KEY_V1]: JSON.stringify(v1State("odsGranted")) });
     const state = loadFrom(store);
     expect(state.settings.windowEnd).toBe("2026-12-05");
-    expect(state.settings.extraWorkingDays).toHaveLength(1);
+    expect(state.settings.extraWorkingDays).toHaveLength(2);
     expect(store.data[STORAGE_KEY_V1]).toBeUndefined();
   });
 });

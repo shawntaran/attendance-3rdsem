@@ -16,7 +16,7 @@ describe("flatten / unflatten", () => {
       x.settings.odState["od-2026-10-30"] = { on: false, inPortal: true };
       x.settings.baseline.MAT2303 = [27, 39];
       // Validation keeps extra working days sorted by date, so add it in order.
-      x.settings.extraWorkingDays.unshift({ date: "2026-11-28", followsWeekday: 3, reason: "x" });
+      x.settings.extraWorkingDays.splice(1, 0, { date: "2026-11-28", followsWeekday: 3, reason: "x" });
       x.settings.theme = "dark";
     });
     expect(unflatten(flatten(s))).toEqual(s);

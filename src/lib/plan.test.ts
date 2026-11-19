@@ -62,10 +62,15 @@ function only(...ids: string[]): OdState {
  */
 const OLD_WINDOW: Partial<Settings> = { windowEnd: "2026-12-01", extraWorkingDays: [] };
 
-/** The current defaults: window to 5 Dec with the Saturday make-up day. */
+/**
+ * Window to 5 Dec with the Sat 5 Dec make-up day only. The fixtures below were
+ * written for this; Sat 21 Nov (added later) is tested on its own.
+ */
+const SAT_5_DEC = { date: "2026-12-05", followsWeekday: 1 as const, reason: "Make-up for Mon 9 Nov holiday" };
+const SAT_21_NOV = { date: "2026-11-21", followsWeekday: 1 as const, reason: "Saturday working day" };
 const NEW_WINDOW: Partial<Settings> = {
   windowEnd: defaultSettings().windowEnd,
-  extraWorkingDays: defaultSettings().extraWorkingDays,
+  extraWorkingDays: [SAT_5_DEC],
 };
 
 function plan(
@@ -474,11 +479,27 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
   const p = plan({ extra: NEW_WINDOW });
   const sessions = (q: Plan) => COURSE_CODES.map((c) => q.byCourse[c].remaining.length);
 
-  it("defaults are window to 5 Dec plus the Saturday make-up day", () => {
+  it("defaults are window to 5 Dec plus the Saturday working days 21 Nov and 5 Dec", () => {
     expect(defaultSettings().windowEnd).toBe("2026-12-05");
-    expect(defaultSettings().extraWorkingDays).toEqual([
-      { date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" },
+    expect(defaultSettings().extraWorkingDays).toEqual([SAT_21_NOV, SAT_5_DEC]);
+  });
+
+  it("Sat 21 Nov runs Monday timetable and adds a Saturday row to week 2", () => {
+    const both = plan({ extra: { windowEnd: "2026-12-05", extraWorkingDays: [SAT_21_NOV, SAT_5_DEC] } });
+    const sat = Object.values(both.byId)
+      .filter((s) => s.date === "2026-11-21")
+      .sort((a, b) => a.startPeriod - b.startPeriod)
+      .map((s) => [s.course, s.startPeriod, s.span]);
+    expect(sat).toEqual([
+      ["MAT2303", 1, 1],
+      ["CSE2255", 2, 1],
+      ["CSE2254", 3, 2],
     ]);
+    expect(both.weeks[1]).toMatchObject({ from: "2026-11-16", to: "2026-11-21" });
+    // Only those three courses gain hours over the 5 Dec-only plan.
+    const before = plan({ extra: NEW_WINDOW });
+    const gained = COURSE_CODES.map((c) => both.byCourse[c].remainingHours - before.byCourse[c].remainingHours);
+    expect(gained).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 2]);
   });
 
   it("regression: the old window reproduces the old numbers exactly", () => {
