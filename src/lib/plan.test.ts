@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLASS_ODS,
   COURSE_CODES,
   PORTAL_BASELINE,
   defaultSettings,
@@ -16,6 +17,7 @@ import {
   diffBudgets,
   diffPlans,
   effectiveBaseline,
+  odDlHours,
   odHoursByCourse,
   odHoursTotal,
   finalPctIfSkipping,
@@ -750,5 +752,48 @@ describe("STEM for Impact Hackathon OD, 17-18 Nov", () => {
       expect(c.finalPctIfAttendAll).toBeCloseTo(off.byCourse[c.code].finalPctIfAttendAll, 9);
       expect(c.remaining.some((s) => s.date === "2026-11-17" || s.date === "2026-11-18")).toBe(false);
     }
+  });
+});
+
+describe("class OD catalogue", () => {
+  const shawn = (): Settings => ({ ...defaultSettings(), record: STATIC_RECORD });
+  // The same days with every class absent: someone who was not given the DL.
+  const absentRecord = () => ({
+    ...STATIC_RECORD,
+    days: STATIC_RECORD.days.map(([d, codes]) => [d, codes.replace(/[PDS]/g, "A")] as [string, string]),
+  });
+
+  it("each past class OD's hours are exactly the DL hours on Shawn's record", () => {
+    for (const od of CLASS_ODS) {
+      const past = od.slots.filter((x) => x.date <= shawn().baselineAsOf);
+      const hours = past.reduce((n, x) => n + x.hours.length, 0);
+      if (od.id === "od-2026-09-29") {
+        expect(odDlHours(od, shawn())).toBe(0); // the French event was never marked DL
+        expect(odHoursTotal(od, shawn())).toBe(1);
+      } else {
+        expect(odDlHours(od, shawn())).toBe(hours);
+      }
+    }
+  });
+
+  it("for someone marked absent those days, switching them on adds the hours as present", () => {
+    const s: Settings = { ...defaultSettings(), record: absentRecord(), ods: CLASS_ODS, odState: odStateAll(CLASS_ODS, true) };
+    const emudhra = CLASS_ODS[0];
+    expect(odHoursTotal(emudhra, s)).toBe(5);
+    expect(odDlHours(emudhra, s)).toBe(0);
+    const off = { ...s, odState: odStateAll(CLASS_ODS, false) };
+    const on = effectiveBaseline(s);
+    const base = effectiveBaseline(off);
+    for (const c of COURSE_CODES) {
+      expect(on[c][1]).toBe(base[c][1]); // held unchanged
+      expect(on[c][0]).toBeGreaterThanOrEqual(base[c][0]);
+    }
+    expect(COURSE_CODES.some((c) => on[c][0] > base[c][0])).toBe(true);
+  });
+
+  it("courses report the record's DL hours, already inside present", () => {
+    const p = computePlan({ settings: shawn(), marks: {}, today: "2026-11-11" });
+    expect(p.courses.reduce((n, c) => n + c.dlHours, 0)).toBeGreaterThan(0);
+    for (const c of p.courses) expect(c.dlHours).toBeLessThanOrEqual(c.present);
   });
 });

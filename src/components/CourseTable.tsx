@@ -16,12 +16,16 @@ function Dot({ ok }: { ok: boolean }) {
   );
 }
 
-/** "includes +4 OD hrs", shown under Now % when OD hours are counted in it. */
+/** "incl. 6 DL + 2 OD hrs as present", under Now % when DL or OD hours are counted in it. */
 function OdCaption({ course }: { course: CoursePlan }) {
-  if (course.odHours <= 0) return null;
+  const parts: string[] = [];
+  if (course.dlHours > 0) parts.push(`${course.dlHours} DL`);
+  if (course.odHours > 0) parts.push(`${course.odHours} OD`);
+  if (parts.length === 0) return null;
+  const total = course.dlHours + course.odHours;
   return (
     <span className="block text-[11px] leading-tight font-normal text-subtle">
-      includes +{fmtHours(course.odHours).replace(" ", " OD ")}
+      incl. {parts.join(" + ")} {total === 1 ? "hr" : "hrs"} as present
     </span>
   );
 }

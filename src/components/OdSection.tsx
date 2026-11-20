@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  CLASS_ODS,
   COURSE_NAME,
   TEACHING_HOURS,
   WINDOW_START,
@@ -13,7 +14,7 @@ import {
   type Settings,
 } from "@/lib/config";
 import { formatDate, isValidDate } from "@/lib/dates";
-import { odHoursByCourse, odHoursTotal } from "@/lib/plan";
+import { odDlHours, odHoursByCourse, odHoursTotal } from "@/lib/plan";
 import { MAX_REASON_LENGTH } from "@/lib/storage";
 import { fmtHours } from "@/lib/view";
 import { CloseIcon } from "./icons";
@@ -153,13 +154,8 @@ export function OdSection({ settings, autoFocus, onChange }: Props) {
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="mt-1.5 text-xs text-subtle">
-                  {settings.record
-                    ? "Nothing to count: those hours are not absences in your record (already DL or present)."
-                    : "Upload your record to count past days."}
-                </p>
-              )}
+              ) : null}
+              <DlNote od={od} settings={settings} total={total} />
               <button
                 type="button"
                 onClick={() => remove(od)}
@@ -171,6 +167,8 @@ export function OdSection({ settings, autoFocus, onChange }: Props) {
           );
         })}
       </ul>
+
+      <ClassOds settings={settings} onAdd={add} />
 
       {adding ? (
         <AddOdForm onAdd={add} onCancel={() => setAdding(false)} windowEnd={settings.windowEnd} />
@@ -301,5 +299,76 @@ function AddOdForm({ onAdd, onCancel, windowEnd }: { onAdd: (od: OdLeave) => voi
       </div>
       <p className="mt-2 text-[11px] text-subtle">Days from {formatDate(WINDOW_START)} on can be in the plan; earlier days use your record.</p>
     </fieldset>
+  );
+}
+
+/** Why an OD adds nothing, or what part of it the portal already counts. */
+function DlNote({ od, settings, total }: { od: OdLeave; settings: Settings; total: number }) {
+  const dl = odDlHours(od, settings);
+  if (dl > 0) {
+    return (
+      <p className="mt-1.5 text-xs text-ok-ink">
+        {fmtHours(dl)} already DL in your record, so already counted as present
+        {total > 0 ? "; the hours above are on top of that." : "."}
+      </p>
+    );
+  }
+  if (total > 0) return null;
+  return (
+    <p className="mt-1.5 text-xs text-subtle">
+      {settings.record
+        ? "Nothing to count: you were marked present in those hours."
+        : "Upload your record to count past days."}
+    </p>
+  );
+}
+
+/** The ODs the class was given, for adding with one tap. Hides the ones already in your list. */
+function ClassOds({ settings, onAdd }: { settings: Settings; onAdd: (od: OdLeave) => void }) {
+  const have = new Set(settings.ods.map((o) => o.id));
+  const offer = CLASS_ODS.filter((o) => !have.has(o.id));
+  if (offer.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-lg border border-line bg-surface" open={settings.ods.length === 0}>
+      <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-bold">
+        Class ODs ({offer.length})
+      </summary>
+      <p className="px-3 text-xs text-subtle">
+        ODs the class was given. Add the ones you went to: absences in those hours count as present.
+      </p>
+      <ul className="mt-1 flex flex-col">
+        {offer.map((od) => {
+          const add = odHoursTotal(od, settings);
+          const dl = odDlHours(od, settings);
+          const effect =
+            add > 0
+              ? `+${fmtHours(add)} for you`
+              : dl > 0
+                ? "already DL in your record"
+                : settings.record
+                  ? "you were present then"
+                  : "";
+          return (
+            <li key={od.id} className="flex items-center gap-3 border-t border-line px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">{od.reason}</p>
+                <p className="text-xs text-subtle">
+                  {slotsLabel(od.slots)}
+                  {effect ? ` · ${effect}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onAdd(structuredClone(od))}
+                aria-label={`Add ${od.reason}`}
+                className="min-h-11 shrink-0 rounded-lg border-[1.5px] border-teal px-3 text-sm font-bold hover:bg-teal hover:text-white"
+              >
+                Add
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }

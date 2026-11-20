@@ -295,6 +295,48 @@ export interface OdLeave {
 
 export const TEACHING_HOURS = [1, 2, 3, 4, 6, 7, 8] as const;
 
+const WHOLE_DAY = [...TEACHING_HOURS];
+
+/**
+ * ODs the class was given, offered to everyone in "Class ODs" to add with one
+ * tap. The hours are the ones the portal later marked DL on Shawn's record
+ * (the 17-18 Nov hackathon was not marked yet, so it covers the whole day).
+ * Ids match the ones the single-user planner used, so an OD someone already
+ * has is not offered twice.
+ */
+export const CLASS_ODS: OdLeave[] = [
+  { id: "od-2026-08-12", reason: "eMudhra visit", slots: [{ date: "2026-08-12", hours: [1, 2, 3, 4, 6] }] },
+  { id: "od-2026-09-04", reason: "SIH orientation", slots: [{ date: "2026-09-04", hours: [1, 2, 3] }] },
+  { id: "od-2026-09-15", reason: "Engineer's Day", slots: [{ date: "2026-09-15", hours: [1] }] },
+  {
+    id: "od-2026-09-16",
+    reason: "SIH hackathon",
+    slots: [
+      { date: "2026-09-16", hours: [1, 2, 3, 4, 6] },
+      { date: "2026-09-17", hours: [1, 2, 3, 4, 7, 8] },
+    ],
+  },
+  { id: "od-2026-09-24", reason: "Anveshana Pitchathon", slots: [{ date: "2026-09-24", hours: [1, 2, 3, 4] }] },
+  { id: "od-2026-09-29", reason: "French event, Seminar Hall", slots: [{ date: "2026-09-29", hours: [3] }] },
+  { id: "od-2026-10-27", reason: "Chip to Crop", slots: [{ date: "2026-10-27", hours: [3] }] },
+  {
+    id: "od-2026-10-29",
+    reason: "Alliance hackathon",
+    slots: [
+      { date: "2026-10-29", hours: [1, 2, 3, 4, 7, 8] },
+      { date: "2026-10-30", hours: [1, 2, 3, 4, 6, 7, 8] },
+    ],
+  },
+  {
+    id: "od-2026-11-17",
+    reason: "STEM for Impact Hackathon",
+    slots: [
+      { date: "2026-11-17", hours: WHOLE_DAY },
+      { date: "2026-11-18", hours: WHOLE_DAY },
+    ],
+  },
+];
+
 export interface OdToggle {
   /** Count this OD's hours as present. */
   on: boolean;

@@ -74,6 +74,8 @@ export interface CoursePlan {
   currentPct: number;
   /** OD hours counted as present on top of the portal baseline. */
   odHours: number;
+  /** DL hours in the uploaded record, already counted as present in the baseline. */
+  dlHours: number;
   /** Every session of the course after the baseline, in time order. */
   sessions: PlanSession[];
   /** Undecided sessions, in time order. */
@@ -266,6 +268,17 @@ export function odHoursByCourse(od: OdLeave, settings: OdSettings): Partial<Reco
   return out;
 }
 
+/** Hours of an OD that the record already shows as DL (so they count as present already). */
+export function odDlHours(od: OdLeave, settings: OdSettings): number {
+  if (!settings.record) return 0;
+  let n = 0;
+  for (const slot of od.slots) {
+    if (slot.date > settings.baselineAsOf) continue;
+    for (const h of slot.hours) if (recordHourAt(settings.record, slot.date, h)?.status === "dl") n++;
+  }
+  return n;
+}
+
 export function odHoursTotal(od: OdLeave, settings: OdSettings): number {
   return Object.values(odHoursByCourse(od, settings)).reduce((sum, h) => sum + (h ?? 0), 0);
 }
@@ -310,6 +323,9 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
   const t = settings.targetPct / 100;
   const baseline = effectiveBaseline(settings);
   const odHours = countedOdHours(settings);
+  const dl = settings.record
+    ? historyTotals(settings.baselineAsOf, settings.countSuspended, recordHistory(settings.record))
+    : null;
   const odDays = odCoveredHours(settings);
   const all = listSessions(settings);
 
@@ -383,6 +399,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
       held,
       currentPct: pct(present, held),
       odHours: odHours[course.code] + odSessionHours,
+      dlHours: dl ? dl[course.code].dl : 0,
       sessions,
       remaining,
       remainingHours: n,
