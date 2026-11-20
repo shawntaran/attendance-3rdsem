@@ -10,6 +10,7 @@ import {
   readLegacy,
   tryValidateState,
   type AppState,
+  LEGACY_ODS,
 } from "./storage";
 import { SyncEngine, newRecord, syncState, type CacheRecord, type LocalCache } from "./sync";
 
@@ -191,7 +192,8 @@ describe("initial cloud migration", () => {
   it("uploads the localStorage v3 state, verifies it, then clears the legacy key", async () => {
     const server = fakeServer();
     const legacy = mark(blank(), "2026-11-12@1", "attended");
-    legacy.settings.odState = odStateAll(false);
+    legacy.settings.ods = LEGACY_ODS;
+    legacy.settings.odState = odStateAll(LEGACY_ODS, false);
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(legacy) });
     const { engine, cache } = device(server, { storage });
 
@@ -504,7 +506,7 @@ describe("swap-week baseline correction", () => {
     expect(a.engine.getSnapshot().state.settings.baseline).toMatchObject(NEW);
     expect(server.saves).toBe(1); // pushed exactly once
     expect(server.repo.record?.version).toBe(2);
-    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 5 });
+    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 6 });
 
     await b.engine.start();
     expect(b.engine.getSnapshot().conflict).toBeNull();

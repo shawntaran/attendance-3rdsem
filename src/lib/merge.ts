@@ -22,7 +22,7 @@ import { validateState, type AppState } from "./storage";
 /** path -> JSON of the value. A missing path means "not set" (e.g. no mark). */
 export type Flat = Map<string, string>;
 
-const SCALARS = ["theme", "targetPct", "cushionHours", "baselineAsOf", "windowEnd"] as const;
+const SCALARS = ["theme", "targetPct", "cushionHours", "baselineAsOf", "windowEnd", "countSuspended"] as const;
 
 export function flatten(state: AppState): Flat {
   const out: Flat = new Map();
@@ -35,6 +35,13 @@ export function flatten(state: AppState): Flat {
   for (const x of s.extraWorkingDays) {
     out.set(`extra/${x.date}`, JSON.stringify({ followsWeekday: x.followsWeekday, reason: x.reason }));
   }
+  for (const od of s.ods) out.set(`odDef/${od.id}`, JSON.stringify({ reason: od.reason, slots: od.slots }));
+  if (s.record) {
+    // The record merges day by day; the marker carries "there is a record" and its upload time.
+    out.set("settings.record", JSON.stringify({ uploadedAt: s.record.uploadedAt }));
+    for (const [date, codes] of s.record.days) out.set(`recordDay/${date}`, JSON.stringify(codes));
+    for (const [date, name] of s.record.holidays) out.set(`recordHoliday/${date}`, JSON.stringify(name));
+  }
   for (const [id, mark] of Object.entries(state.marks)) out.set(`mark/${id}`, JSON.stringify(mark));
   return out;
 }
@@ -46,8 +53,11 @@ export function unflatten(flat: Flat): AppState {
     odState: {},
     holidays: [] as string[],
     extraWorkingDays: [] as unknown[],
+    ods: [] as unknown[],
   };
   const marks: Record<string, Mark> = {};
+  const recordDays: [string, unknown][] = [];
+  const recordHolidays: [string, unknown][] = [];
   for (const [path, json] of flat) {
     const value: unknown = JSON.parse(json);
     const slash = path.indexOf("/");
@@ -59,7 +69,14 @@ export function unflatten(flat: Flat): AppState {
     else if (kind === "holiday") (settings.holidays as string[]).push(key);
     else if (kind === "extra") (settings.extraWorkingDays as unknown[]).push({ date: key, ...(value as object) });
     else if (kind === "mark") marks[key] = value as Mark;
+    else if (kind === "odDef") (settings.ods as unknown[]).push({ id: key, ...(value as object) });
+    else if (kind === "recordDay") recordDays.push([key, value]);
+    else if (kind === "recordHoliday") recordHolidays.push([key, value]);
     else throw new Error(`unknown path ${path}`);
+  }
+  if (settings.record !== undefined || recordDays.length > 0 || recordHolidays.length > 0) {
+    const marker = (settings.record ?? {}) as { uploadedAt?: string | null };
+    settings.record = { days: recordDays, holidays: recordHolidays, uploadedAt: marker.uploadedAt ?? null };
   }
   return validateState({ settings: settings as unknown as Settings, marks });
 }
@@ -141,6 +158,12 @@ export function describePath(path: string): string {
       return `OD ${key}`;
     case "holiday":
       return `holiday ${key}`;
+    case "odDef":
+      return `OD ${key}`;
+    case "recordDay":
+      return `record for ${key}`;
+    case "recordHoliday":
+      return `record holiday ${key}`;
     case "extra":
       return `extra working day ${key}`;
     default:

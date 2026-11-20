@@ -15,6 +15,7 @@ const project = process.env.APPWRITE_PROJECT_ID;
 const key = process.env.APPWRITE_API_KEY;
 const databaseId = process.env.APPWRITE_DATABASE_ID || "planner";
 const tableId = process.env.APPWRITE_TABLE_ID || "planner_versions";
+const usersTableId = process.env.APPWRITE_USERS_TABLE_ID || "users";
 
 if (!endpoint || !project || !key) {
   console.error("Set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID and APPWRITE_API_KEY (e.g. in .env.local) first.");
@@ -60,19 +61,56 @@ await ensure(`table "${tableId}"`, () =>
   db.createTable({ databaseId, tableId, name: "Planner versions", permissions: [], rowSecurity: false }),
 );
 
+await ensure('column user (varchar 24)', () =>
+  db.createStringColumn({ databaseId, tableId, key: "user", size: 24, required: false }),
+);
 await ensure("column version (integer)", () =>
   db.createIntegerColumn({ databaseId, tableId, key: "version", required: true, min: 1 }),
 );
 await ensure("column state (mediumtext)", () =>
   db.createMediumtextColumn({ databaseId, tableId, key: "state", required: true }),
 );
+await waitFor("column user", () => db.getColumn({ databaseId, tableId, key: "user" }));
 await waitFor("column version", () => db.getColumn({ databaseId, tableId, key: "version" }));
 await waitFor("column state", () => db.getColumn({ databaseId, tableId, key: "state" }));
 
-// Two saves of the same version can never both exist.
-await ensure("unique index on version", () =>
-  db.createIndex({ databaseId, tableId, key: "version_unique", type: TablesDBIndexType.Unique, columns: ["version"] }),
-);
-await waitFor("index version_unique", () => db.getIndex({ databaseId, tableId, key: "version_unique" }));
+// Before accounts there was one planner, so versions were unique on their own.
+// Now each person has their own run of versions: drop that index if present.
+try {
+  await db.deleteIndex({ databaseId, tableId, key: "version_unique" });
+  console.log("removed  old index version_unique");
+} catch (err) {
+  if (!(err instanceof AppwriteException && err.code === 404)) throw err;
+}
 
-console.log(`\nDone. Database "${databaseId}", table "${tableId}" are ready for /api/planner.`);
+// Two saves of the same version by the same person can never both exist.
+await ensure("unique index on (user, version)", () =>
+  db.createIndex({
+    databaseId,
+    tableId,
+    key: "user_version_unique",
+    type: TablesDBIndexType.Unique,
+    columns: ["user", "version"],
+  }),
+);
+await waitFor("index user_version_unique", () => db.getIndex({ databaseId, tableId, key: "user_version_unique" }));
+
+// One row per person; the row id is their name key (lowercase).
+await ensure(`table "${usersTableId}"`, () =>
+  db.createTable({ databaseId, tableId: usersTableId, name: "Users", permissions: [], rowSecurity: false }),
+);
+const u = { databaseId, tableId: usersTableId };
+await ensure("column name (varchar 24)", () => db.createStringColumn({ ...u, key: "name", size: 24, required: true }));
+await ensure("column pinHash (varchar 200)", () => db.createStringColumn({ ...u, key: "pinHash", size: 200, required: true }));
+await ensure("column failedAttempts (integer)", () =>
+  db.createIntegerColumn({ ...u, key: "failedAttempts", required: false, min: 0, xdefault: 0 }),
+);
+await ensure("column lockedUntil (varchar 40)", () =>
+  db.createStringColumn({ ...u, key: "lockedUntil", size: 40, required: false }),
+);
+for (const key of ["name", "pinHash", "failedAttempts", "lockedUntil"]) {
+  await waitFor(`column ${key}`, () => db.getColumn({ ...u, key }));
+}
+
+console.log(`
+Done. Database "${databaseId}" with tables "${tableId}" and "${usersTableId}" is ready.`);

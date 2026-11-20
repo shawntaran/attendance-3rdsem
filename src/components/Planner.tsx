@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COURSE_NAME, ODS, SECTION, type OdState, type Settings, type Week } from "@/lib/config";
+import { COURSE_NAME, SECTION, type AttendanceRecord, type OdLeave, type OdState, type Settings, type Week } from "@/lib/config";
+import type { Account } from "@/lib/account";
 import { formatDate, isValidDate, localToday } from "@/lib/dates";
 import {
   computePlan,
@@ -14,14 +15,13 @@ import {
   type PlanDiff,
   type PlanSession,
 } from "@/lib/plan";
-import { THEME_KEY, defaultState, type AppState } from "@/lib/storage";
+import { THEME_KEY, applyRecord, defaultState, type AppState } from "@/lib/storage";
 import { endLabel, fmtHours, weekDays, weekRangeLabel } from "@/lib/view";
 import { loadOffDays, saveOffDays, summarizeWhatIf, withOffDays } from "@/lib/whatIf";
-import { getAccessKey } from "@/lib/accessKey";
-import { AccessKeyBanner } from "./AccessKeyBanner";
 import { ColorKey } from "./ColorKey";
 import { ConflictBanner } from "./ConflictBanner";
 import { RecordView } from "./RecordView";
+import { RecordWelcome } from "./RecordUpload";
 import { CourseTable } from "./CourseTable";
 import { DesktopGrid } from "./DesktopGrid";
 import { Glance } from "./Glance";
@@ -72,9 +72,18 @@ function budgetMessage(changes: BudgetChange[]): string {
   return `${shown.join(", ")}${more > 0 ? `, and ${more} more` : ""}.`;
 }
 
-export function Planner() {
+interface Props {
+  account: Account;
+  /** This device's planner from before accounts, when the person chose to move it in. */
+  preAccounts: AppState | null;
+  /** null when using the planner on this device without an account. */
+  onSignOut: (() => void) | null;
+  onSignInAgain: () => void;
+}
+
+export function Planner({ account, preAccounts, onSignOut, onSignInAgain }: Props) {
   // State lives in the sync engine: cached on this device, kept in step with the cloud.
-  const sync = usePlannerSync();
+  const sync = usePlannerSync(account, preAccounts);
   const { ready, state, update: setState } = sync;
   const [today, setToday] = useState("2026-11-11");
   const [isDesktop, setIsDesktop] = useState(false);
@@ -217,11 +226,19 @@ export function Planner() {
     commit({ ...state, marks: nextMarks }, toastMessage(lead, diff, fallback), diff.changedIds, true);
   }
 
-  /** An OD switch or its "already DL" box changed: recompute and report budgets. */
-  function handleOdChange(odState: OdState) {
-    const next: AppState = { ...state, settings: { ...state.settings, odState } };
+  /** An OD was added, removed or switched: recompute and report budgets. */
+  function handleOdChange({ ods, odState }: { ods: OdLeave[]; odState: OdState }) {
+    const next: AppState = { ...state, settings: { ...state.settings, ods, odState } };
     const after = calcPlan(next.settings, next.marks);
     commit(next, budgetMessage(diffBudgets(plan, after)), diffPlans(plan, after).changedIds, true);
+  }
+
+  /** A record was uploaded, or "count suspended hours" changed: rebuild baseline and marks. */
+  function handleRecord(record: AttendanceRecord, settings: Settings = state.settings) {
+    const next = applyRecord({ ...state, settings }, record);
+    const after = calcPlan(next.settings, next.marks);
+    const lead = settings === state.settings ? "Record updated." : "Suspended hours counted again.";
+    commit(next, `${lead} ${budgetMessage(diffBudgets(plan, after))}`, diffPlans(plan, after).changedIds, true);
   }
 
   function handleMark(mark: Mark | null) {
@@ -290,7 +307,7 @@ export function Planner() {
   const onOpen = (session: PlanSession, trigger: HTMLElement) => setOpen({ id: session.id, anchor: trigger });
 
   return (
-    <div className="mx-auto max-w-[1240px] px-3 pt-4 pb-28 desk:px-8 desk:pt-8">
+    <main className="mx-auto max-w-[1240px] px-3 pt-4 pb-28 desk:px-8 desk:pt-8">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-3xl leading-none font-bold desk:text-5xl">
@@ -299,8 +316,11 @@ export function Planner() {
           <p className="mt-1.5 text-sm text-subtle desk:text-base">
             {mode === "record" ? "Every class so far: present, absent, OD or suspended" : weekRangeLabel(week)}
           </p>
-          <div className="mt-1 -ml-2">
+          <div className="mt-1 -ml-2 flex flex-wrap items-center gap-x-2">
             <SyncIndicator status={sync.status} message={sync.message} onRetry={() => void sync.retry()} />
+            <span className="text-xs text-subtle">
+              {onSignOut ? `Signed in as ${account.name}` : "On this device only"}
+            </span>
           </div>
         </div>
         <div className="flex items-start gap-2 desk:gap-3">
@@ -314,12 +334,12 @@ export function Planner() {
             type="button"
             onClick={(e) => openSettings("ods", e.currentTarget)}
             aria-haspopup="dialog"
-            aria-label={`On-duty leaves: ${od.counted} of ${ODS.length} counted as present. Open OD settings.`}
+            aria-label={`On-duty leaves: ${od.counted} of ${od.total} counted as present. Open OD settings.`}
             className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold whitespace-nowrap hover:border-teal"
           >
             ODs
             <span className="rounded-full bg-ok-bg px-1.5 py-px text-xs font-bold text-ok-ink tabular-nums">
-              {od.counted}/{ODS.length}
+              {od.counted}/{od.total}
             </span>
           </button>
           <button
@@ -338,8 +358,18 @@ export function Planner() {
         {SECTION} · keep every course at {state.settings.targetPct}% till {end}
       </p>
 
-      {ready && sync.failureKind === "unauthorized" && (
-        <AccessKeyBanner message={sync.message} onSave={(key) => void sync.saveAccessKey(key)} />
+      {ready && sync.failureKind === "unauthorized" && onSignOut && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border-[1.5px] border-must-border bg-warn-bg p-3 text-sm">
+          <p className="min-w-0 flex-1 font-semibold">
+            Your session has ended, so changes stay on this device until you sign in again.
+          </p>
+          <button type="button" onClick={onSignInAgain} className="min-h-11 rounded-lg bg-ink px-4 text-sm font-bold text-page">
+            Sign in again
+          </button>
+        </div>
+      )}
+      {ready && !state.settings.record && mode === "plan" && (
+        <RecordWelcome name={account.name} onApply={(record) => handleRecord(record)} />
       )}
       {ready && sync.conflict && (
         <ConflictBanner conflict={sync.conflict} onResolve={(choice) => void sync.resolveConflict(choice)} />
@@ -362,7 +392,7 @@ export function Planner() {
         />
       )}
 
-      {ready && firstUnmarked && (
+      {ready && firstUnmarked && state.settings.record && (
         <UnmarkedNotice
           count={plan.unmarkedCount}
           firstDate={firstUnmarked.date}
@@ -400,7 +430,7 @@ export function Planner() {
       </div>
 
       {mode === "record" ? (
-        <RecordView isDesktop={isDesktop} />
+        <RecordView isDesktop={isDesktop} settings={state.settings} onApply={(record) => handleRecord(record)} />
       ) : !ready ? (
         <div className="mt-4 h-96 rounded-xl bg-muted" role="status" aria-label="Loading your plan" />
       ) : (
@@ -470,13 +500,14 @@ export function Planner() {
           focusOds={settingsOpen === "ods"}
           onChange={changeSettings}
           onOdChange={handleOdChange}
-          hasAccessKey={!!getAccessKey()}
-          onSaveAccessKey={(key) => {
-            void sync.saveAccessKey(key);
-            counter.current += 1;
-            setToast({ key: counter.current, message: "Access key saved on this device.", canUndo: false });
+          accountName={onSignOut ? account.name : null}
+          onSignOut={onSignOut}
+          onRecord={(record) => handleRecord(record)}
+          onCountSuspended={(countSuspended) => {
+            const settings = { ...state.settings, countSuspended };
+            if (state.settings.record) handleRecord(state.settings.record, settings);
+            else changeSettings(settings);
           }}
-          onForgetAccessKey={() => void sync.forgetAccessKey()}
           onResetMarks={() => {
             undoState.current = null;
             setToast(null);
@@ -492,6 +523,6 @@ export function Planner() {
       )}
 
       <Toast toast={toast} onUndo={handleUndo} onDismiss={() => setToast(null)} />
-    </div>
+    </main>
   );
 }

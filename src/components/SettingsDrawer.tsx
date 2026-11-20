@@ -5,14 +5,16 @@ import {
   COURSES,
   THEME_LABEL,
   WINDOW_START,
+  type AttendanceRecord,
   type CourseCode,
+  type OdLeave,
   type OdState,
   type Settings,
   type Theme,
 } from "@/lib/config";
-import { formatDate, isValidDate } from "@/lib/dates";
+import { formatDate, formatDayMonth, isValidDate } from "@/lib/dates";
 import { OdSection } from "./OdSection";
-import { AccessKeyForm } from "./AccessKeyForm";
+import { RecordUpload } from "./RecordUpload";
 import { PlanWindowSection } from "./PlanWindowSection";
 import { CloseIcon } from "./icons";
 import { useModal } from "./useModal";
@@ -23,14 +25,15 @@ interface Props {
   /** Open with focus on the OD section. */
   focusOds: boolean;
   onChange: (settings: Settings) => void;
-  /** OD switches go through here so the planner can show a budget toast. */
-  onOdChange: (odState: OdState) => void;
+  /** OD changes go through here so the planner can show a budget toast. */
+  onOdChange: (next: { ods: OdLeave[]; odState: OdState }) => void;
+  onRecord: (record: AttendanceRecord) => void;
+  onCountSuspended: (on: boolean) => void;
   onResetMarks: () => void;
   onResetAll: () => void;
-  /** Whether this device has a cloud access key saved. */
-  hasAccessKey: boolean;
-  onSaveAccessKey: (key: string) => void;
-  onForgetAccessKey: () => void;
+  /** The signed-in name, or null on this device only. */
+  accountName: string | null;
+  onSignOut: (() => void) | null;
   onClose: () => void;
 }
 
@@ -73,6 +76,12 @@ function NumberField({
   );
 }
 
+function recordSpan(record: AttendanceRecord): string {
+  const dates = record.days.map(([d]) => d).sort();
+  if (dates.length === 0) return "An empty record";
+  return `${formatDayMonth(dates[0])} to ${formatDayMonth(dates[dates.length - 1])}, ${dates.length} class days`;
+}
+
 export function SettingsDrawer({
   settings,
   markCount,
@@ -81,9 +90,10 @@ export function SettingsDrawer({
   onOdChange,
   onResetMarks,
   onResetAll,
-  hasAccessKey,
-  onSaveAccessKey,
-  onForgetAccessKey,
+  onRecord,
+  onCountSuspended,
+  accountName,
+  onSignOut,
   onClose,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -138,7 +148,50 @@ export function SettingsDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <OdSection settings={settings} odState={settings.odState} autoFocus={focusOds} onChange={onOdChange} />
+          <OdSection settings={settings} autoFocus={focusOds} onChange={onOdChange} />
+
+          <h3 className="mt-6 text-sm font-bold">Your attendance record</h3>
+          {settings.record ? (
+            <p className="mt-0.5 text-xs text-subtle">
+              {recordSpan(settings.record)}
+              {settings.record.uploadedAt ? `, uploaded ${formatDate(settings.record.uploadedAt.slice(0, 10))}` : ""}.
+              Upload a newer export from the portal whenever you like; it replaces this one.
+            </p>
+          ) : (
+            <p className="mt-0.5 text-xs text-subtle">
+              Not uploaded yet. Download the Daily Attendance report from the portal as Excel and upload it.
+            </p>
+          )}
+          <div className="mt-2">
+            <RecordUpload onApply={onRecord} pickLabel={settings.record ? "Upload a newer file" : undefined} />
+          </div>
+          <div className="mt-3 flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p id="suspended-label" className="text-sm font-semibold">
+                Count suspended hours as missed
+              </p>
+              <p className="text-xs text-subtle">
+                Suspended (blocked) hours count as held but not attended, like most portals do. Switch off to leave
+                them out entirely.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.countSuspended}
+              aria-labelledby="suspended-label"
+              onClick={() => onCountSuspended(!settings.countSuspended)}
+              className="flex h-11 w-12 shrink-0 items-center justify-center rounded-lg"
+            >
+              <span
+                className={`flex h-[26px] w-12 items-center rounded-full border-[1.5px] px-[2px] transition-colors ${
+                  settings.countSuspended ? "justify-end border-teal bg-teal" : "justify-start border-field bg-muted"
+                }`}
+              >
+                <span className={`h-[19px] w-[19px] rounded-full ${settings.countSuspended ? "bg-white" : "bg-field"}`} />
+              </span>
+            </button>
+          </div>
 
           <fieldset className="mt-5">
             <legend className="text-sm font-bold">Theme</legend>
@@ -189,7 +242,9 @@ export function SettingsDrawer({
             </label>
           </div>
 
-          <h3 className="mt-6 text-sm font-bold">Portal attendance (ODs not included)</h3>
+          {!settings.record && (
+          <>
+          <h3 className="mt-6 text-sm font-bold">Or type the portal totals (ODs not included)</h3>
           <p className="mt-0.5 text-xs text-subtle">
             Present and held hours exactly as the portal shows them. After a fresh export, update
             these, set the date below, and tick &ldquo;Already shows DL on the portal&rdquo; for any OD
@@ -255,6 +310,8 @@ export function SettingsDrawer({
               })}
             </tbody>
           </table>
+          </>
+          )}
 
           <PlanWindowSection settings={settings} inputCls={inputCls} onChange={onChange} />
 
@@ -297,33 +354,20 @@ export function SettingsDrawer({
             </button>
           </div>
 
-          <h3 className="mt-6 text-sm font-bold">Cloud access key</h3>
-          <p className="mt-0.5 text-xs text-subtle">
-            {hasAccessKey
-              ? "This device has a key saved. Enter a new one to replace it."
-              : "No key on this device yet, so it cannot sync."}{" "}
-            The key is the PLANNER_ACCESS_KEY set on the server.
-          </p>
-          <div className="mt-2">
-            <AccessKeyForm
-              label={hasAccessKey ? "New access key" : "Access key"}
-              submitLabel="Save key"
-              inputCls={`${inputCls} mt-1 font-normal`}
-              onSave={onSaveAccessKey}
-            />
-          </div>
-          {hasAccessKey && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("Forget the access key on this device? It stops syncing until you enter it again.")) {
-                  onForgetAccessKey();
-                }
-              }}
-              className="mt-2 min-h-11 w-full rounded-lg border-[1.5px] border-ink bg-surface px-4 text-sm font-bold hover:bg-empty"
-            >
-              Forget key on this device
-            </button>
+          {accountName && onSignOut && (
+            <>
+              <h3 className="mt-6 text-sm font-bold">Account</h3>
+              <p className="mt-0.5 text-xs text-subtle">
+                Signed in as {accountName}. Your planner syncs to every device you sign in on.
+              </p>
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="mt-2 min-h-11 w-full rounded-lg border-[1.5px] border-ink bg-surface px-4 text-sm font-bold hover:bg-empty"
+              >
+                Sign out
+              </button>
+            </>
           )}
 
           <h3 className="mt-6 text-sm font-bold">Reset</h3>
@@ -341,7 +385,7 @@ export function SettingsDrawer({
             <button
               type="button"
               onClick={() => {
-                if (window.confirm("Reset marks, baseline and every setting to the defaults?")) onResetAll();
+                if (window.confirm("Reset everything? Your record, ODs, marks and settings are all removed.")) onResetAll();
               }}
               className="min-h-11 rounded-lg border-[1.5px] border-must-border bg-surface px-4 text-sm font-bold text-must-border hover:bg-warn-bg"
             >

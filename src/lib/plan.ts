@@ -25,7 +25,6 @@ import {
   COURSES,
   COURSE_NAME,
   FIXED_MUTED_DAYS,
-  ODS,
   TIMETABLE,
   WINDOW_START,
   odAddsHours,
@@ -37,6 +36,7 @@ import {
   type Week,
 } from "./config";
 import { addDays, dateRange, formatDate, weekdayIndex } from "./dates";
+import { historyTotals, recordHistory, recordHourAt } from "./history";
 
 export type Mark = "attended" | "skipped";
 export type Marks = Record<string, Mark>;
@@ -58,8 +58,9 @@ export interface PlanSession {
   span: number;
   course: CourseCode;
   status: SessionStatus;
-  /** For status "od": the OD covering this day. */
+  /** For status "od": the OD covering this class, and its reason. */
   odId?: string;
+  odReason?: string;
 }
 
 export interface CoursePlan {
@@ -214,55 +215,92 @@ export function listSessions(settings: WindowSettings & Pick<Settings, "baseline
   return out;
 }
 
-/** Plan days covered by a switched-on OD, mapped to that OD's id. */
-export function odCoveredDates(settings: Pick<Settings, "odState">): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const od of ODS) {
-    if (!od.dates || !odAddsHours(settings.odState[od.id])) continue;
-    for (const d of od.dates) if (!out.has(d)) out.set(d, od.id);
-  }
-  return out;
-}
+type OdSettings = WindowSettings & Pick<Settings, "ods" | "odState" | "record" | "baselineAsOf">;
 
-/**
- * Hours per course an OD covers: its baseline hours, or for an OD with plan
- * dates, the hours of the classes on those days (holidays and dates already
- * inside the baseline are left out, as in the plan).
- */
-export function odHoursByCourse(od: OdLeave, settings: WindowSettings & Pick<Settings, "baselineAsOf">): Partial<Record<CourseCode, number>> {
-  if (!od.dates) return od.hours;
-  const out: Partial<Record<CourseCode, number>> = {};
-  for (const sess of listSessions(settings)) {
-    if (od.dates.includes(sess.date)) out[sess.course] = (out[sess.course] ?? 0) + sess.span;
-  }
-  return out;
-}
-
-export function odHoursTotal(od: OdLeave, settings: WindowSettings & Pick<Settings, "baselineAsOf">): number {
-  return Object.values(odHoursByCourse(od, settings)).reduce((sum, h) => sum + (h ?? 0), 0);
-}
-
-/** Hours per course added by the ODs that are on and not already in the portal. */
-export function countedOdHours(settings: Pick<Settings, "odState">): Record<CourseCode, number> {
-  const out = Object.fromEntries(COURSES.map((c) => [c.code, 0])) as Record<CourseCode, number>;
-  for (const od of ODS) {
+/** Plan hours covered by a switched-on OD: date -> hour -> OD id (days after baselineAsOf). */
+export function odCoveredHours(settings: OdSettings): Map<string, Map<number, string>> {
+  const out = new Map<string, Map<number, string>>();
+  for (const od of settings.ods) {
     if (!odAddsHours(settings.odState[od.id])) continue;
-    for (const [code, hours] of Object.entries(od.hours)) {
-      out[code as CourseCode] += hours ?? 0;
+    for (const slot of od.slots) {
+      if (slot.date <= settings.baselineAsOf) continue;
+      const hours = out.get(slot.date) ?? new Map<number, string>();
+      for (const h of slot.hours) if (!hours.has(h)) hours.set(h, od.id);
+      out.set(slot.date, hours);
+    }
+  }
+  return out;
+}
+
+/** Absences in the record that an OD turns into present, per course (days up to baselineAsOf). */
+function odPastHours(od: OdLeave, settings: OdSettings): Partial<Record<CourseCode, number>> {
+  const out: Partial<Record<CourseCode, number>> = {};
+  if (!settings.record) return out;
+  for (const slot of od.slots) {
+    if (slot.date > settings.baselineAsOf) continue;
+    for (const h of slot.hours) {
+      const at = recordHourAt(settings.record, slot.date, h);
+      if (at?.status === "absent") out[at.course] = (out[at.course] ?? 0) + 1;
     }
   }
   return out;
 }
 
 /**
- * The baseline the plan starts from: portal present plus counted OD hours.
- * Held is unchanged, because those hours are already held (as absences).
+ * Hours per course an OD covers right now: absences it converts on past days,
+ * plus the classes it covers on plan days (a class counts in full if the OD
+ * covers any of its hours). Hours already DL in the record count for nothing.
  */
-export function effectiveBaseline(settings: Pick<Settings, "baseline" | "odState">): Baseline {
+export function odHoursByCourse(od: OdLeave, settings: OdSettings): Partial<Record<CourseCode, number>> {
+  const out = odPastHours(od, settings);
+  const planSlots = od.slots.filter((x) => x.date > settings.baselineAsOf);
+  if (planSlots.length > 0) {
+    for (const sess of listSessions(settings)) {
+      const slot = planSlots.find((x) => x.date === sess.date);
+      if (!slot) continue;
+      if (slot.hours.some((h) => h >= sess.startPeriod && h < sess.startPeriod + sess.span)) {
+        out[sess.course] = (out[sess.course] ?? 0) + sess.span;
+      }
+    }
+  }
+  return out;
+}
+
+export function odHoursTotal(od: OdLeave, settings: OdSettings): number {
+  return Object.values(odHoursByCourse(od, settings)).reduce((sum, h) => sum + (h ?? 0), 0);
+}
+
+/** Present hours per course added to the baseline by the ODs that are switched on. */
+export function countedOdHours(settings: OdSettings): Record<CourseCode, number> {
+  const out = Object.fromEntries(COURSES.map((c) => [c.code, 0])) as Record<CourseCode, number>;
+  for (const od of settings.ods) {
+    if (!odAddsHours(settings.odState[od.id])) continue;
+    for (const [code, hours] of Object.entries(odPastHours(od, settings))) out[code as CourseCode] += hours ?? 0;
+  }
+  return out;
+}
+
+/**
+ * The baseline before ODs: worked out from the person's uploaded record when
+ * they have one (DL present; blocked hours held but not attended if
+ * countSuspended), otherwise the numbers typed in Settings.
+ */
+export function recordBaseline(settings: Pick<Settings, "record" | "baseline" | "baselineAsOf" | "countSuspended">): Baseline {
+  if (!settings.record || settings.record.days.length === 0) return settings.baseline;
+  const totals = historyTotals(settings.baselineAsOf, settings.countSuspended, recordHistory(settings.record));
+  return Object.fromEntries(COURSES.map((c) => [c.code, [totals[c.code].present, totals[c.code].held]])) as Baseline;
+}
+
+/**
+ * The baseline the plan starts from: the record (or typed numbers) plus the
+ * absences that switched-on ODs turn into present. Held is unchanged.
+ */
+export function effectiveBaseline(settings: OdSettings & Pick<Settings, "baseline" | "countSuspended">): Baseline {
+  const base = recordBaseline(settings);
   const od = countedOdHours(settings);
   return Object.fromEntries(
     COURSES.map((c) => {
-      const [present, held] = settings.baseline[c.code];
+      const [present, held] = base[c.code];
       return [c.code, [present + od[c.code], held]];
     }),
   ) as Baseline;
@@ -272,7 +310,7 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
   const t = settings.targetPct / 100;
   const baseline = effectiveBaseline(settings);
   const odHours = countedOdHours(settings);
-  const odDays = odCoveredDates(settings);
+  const odDays = odCoveredHours(settings);
   const all = listSessions(settings);
 
   const courses: CoursePlan[] = [];
@@ -291,7 +329,9 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
     for (const s of raw) {
       const mark = marks[s.id];
       let status: SessionStatus;
-      const odId = odDays.get(s.date);
+      const coveredHours = odDays.get(s.date);
+      let odId: string | undefined;
+      for (let h = s.startPeriod; coveredHours && !odId && h < s.startPeriod + s.span; h++) odId = coveredHours.get(h);
       if (odId) status = "od";
       else if (mark === "attended") status = "attended";
       else if (mark === "skipped") status = "skipped";
@@ -307,7 +347,9 @@ export function computePlan({ settings, marks, today }: ComputePlanInput): Plan 
         skipHoursUsed += s.span;
       }
 
-      const session: PlanSession = odId ? { ...s, status, odId } : { ...s, status };
+      const session: PlanSession = odId
+        ? { ...s, status, odId, odReason: settings.ods.find((o) => o.id === odId)?.reason }
+        : { ...s, status };
       sessions.push(session);
       if (status === "attend") remaining.push(session);
       if (status === "unmarked") unmarked.push(session);

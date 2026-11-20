@@ -196,9 +196,9 @@ export const BASELINE_AS_OF = "2026-11-10";
  * Attendance up to BASELINE_AS_OF, worked out class by class from the past
  * record (history.ts: the portal's daily report, each hour placed on the
  * course that ran it, with the timetable change on 17 Sep). DL counts as
- * present; suspended hours count as held but not attended. ODs still pending
- * are absences in here; the ODS list below turns them into present hours.
- * history.test.ts checks these numbers against the record. Revision 4.
+ * present; suspended hours count as held but not attended. Since accounts,
+ * a person's baseline is worked out from their own uploaded record; this
+ * table is kept for migrating the single-user data (revision 4).
  */
 export const PORTAL_BASELINE: Baseline = {
   CSE2251: [34, 37],
@@ -225,8 +225,9 @@ export const PORTAL_BASELINE: Baseline = {
  *   3: Sat 21 Nov added as a working day on Monday's timetable
  *   4: baseline rebuilt from the class-by-class record
  *   5: 11-19 Nov marks imported from the record (where not marked by hand)
+ *   6: accounts: ODs and the record move into each person's own settings
  */
-export const BASELINE_REVISION = 5;
+export const BASELINE_REVISION = 6;
 
 /**
  * Per revision: courses whose default changed, as [old default, new default].
@@ -273,56 +274,26 @@ export const EXTRA_DAY_ADDITIONS: Record<number, ExtraWorkingDay[]> = {
 
 // ---- On-duty leaves (OD) ---------------------------------------------------
 
-export interface OdLeave {
-  id: string;
-  /** The day of the leave, YYYY-MM-DD. */
+/** One day of an OD: the hours (1 to 8, never 5) it covers. */
+export interface OdSlot {
   date: string;
-  reason: string;
-  /** True when it is not sure an OD was applied for at all. */
-  unconfirmed?: boolean;
-  /**
-   * Absent hours sitting in the portal baseline that this OD would turn into
-   * present hours, per course. Empty for an OD that covers plan days instead.
-   */
-  hours: Partial<Record<CourseCode, number>>;
-  /**
-   * Days inside the plan window this OD covers. While the OD is switched on,
-   * every class on these days counts as present (shown as "On duty"), whatever
-   * is marked there. The hours come from the timetable, not from `hours`.
-   */
-  dates?: string[];
+  hours: number[];
 }
 
 /**
- * ODs not yet shown as DL. Every other OD (12 Aug, 4 Sep, 15/16/17/24 Sep,
- * 27/29/30 Oct) is a DL in the record now, so it is already present in the
- * baseline and was removed from this list.
+ * An on-duty leave someone added for themselves: a reason and the days and
+ * hours it covers. On a past day (on or before baselineAsOf) it turns those
+ * hours' absences in the person's record into present. On a day in the plan,
+ * the classes in those hours count as present and show as "On duty".
+ * Once the portal shows the hours as DL, the OD simply has nothing left to do.
  */
-export const ODS: OdLeave[] = [
-  {
-    // Both hours of the DCCN lab on 29 Sep are still absent in the record.
-    id: "od-2026-09-29",
-    date: "2026-09-29",
-    reason: "French event, Seminar Hall",
-    hours: { CSE2252: 1 },
-  },
-  {
-    // Inside the plan: covers every class on both days (12 hours by the timetable).
-    id: "od-2026-11-17",
-    date: "2026-11-17",
-    reason: "STEM for Impact Hackathon",
-    hours: {},
-    dates: ["2026-11-17", "2026-11-18"],
-  },
-];
-
-/** Baseline hours only; an OD covering plan days counts its hours from the timetable (see plan.ts). */
-export function odTotalHours(od: OdLeave): number {
-  return Object.values(od.hours).reduce((sum, h) => sum + (h ?? 0), 0);
+export interface OdLeave {
+  id: string;
+  reason: string;
+  slots: OdSlot[];
 }
 
-/** Absent hours in the portal baseline that all baseline ODs together can turn into present. */
-export const OD_TOTAL_HOURS = ODS.reduce((sum, od) => sum + odTotalHours(od), 0);
+export const TEACHING_HOURS = [1, 2, 3, 4, 6, 7, 8] as const;
 
 export interface OdToggle {
   /** Count this OD's hours as present. */
@@ -336,8 +307,8 @@ export interface OdToggle {
 
 export type OdState = Record<string, OdToggle>;
 
-export function odStateAll(on: boolean): OdState {
-  return Object.fromEntries(ODS.map((od) => [od.id, { on, inPortal: false }]));
+export function odStateAll(ods: OdLeave[], on: boolean): OdState {
+  return Object.fromEntries(ods.map((od) => [od.id, { on, inPortal: false }]));
 }
 
 /** True when the OD's hours are added on top of the portal baseline. */
@@ -380,10 +351,34 @@ export interface Settings {
    * Optional so states saved before it existed still validate; missing = 1.
    */
   baselineRevision?: number;
+  /** This person's own ODs (on-duty leaves not yet DL). */
+  ods: OdLeave[];
   /** Which ODs to count as present. */
   odState: OdState;
   holidays: string[];
+  /** The person's uploaded record; null until they upload one. */
+  record: AttendanceRecord | null;
+  /** Count blocked (suspended) hours as held but not attended. */
+  countSuspended: boolean;
 }
+
+/**
+ * A person's past record, as read from the portal's Daily Attendance export:
+ * per class day, one code per hour 1 to 8 (P present, A absent, D DL, S
+ * blocked/suspended, "." no class), plus the holidays the export names.
+ */
+export interface AttendanceRecord {
+  days: [date: string, hours: string][];
+  holidays: [date: string, name: string][];
+  uploadedAt: string | null;
+}
+
+/** A blank baseline: someone with no record and nothing typed in. */
+export const EMPTY_BASELINE: Baseline = Object.fromEntries(
+  ["CSE2251", "CSE2252", "APT4002", "CSE2259", "CSE2257", "CSE2253", "MAT2303", "CSE2255", "CSE2258", "CSE2256", "CSE2254"].map(
+    (c) => [c, [0, 0]],
+  ),
+) as Baseline;
 
 export const DEFAULT_TARGET_PCT = 75;
 export const DEFAULT_CUSHION_HOURS = 1;
@@ -396,9 +391,12 @@ export function defaultSettings(): Settings {
     baselineAsOf: BASELINE_AS_OF,
     windowEnd: DEFAULT_WINDOW_END,
     extraWorkingDays: structuredClone(DEFAULT_EXTRA_WORKING_DAYS),
-    baseline: structuredClone(PORTAL_BASELINE),
+    baseline: structuredClone(EMPTY_BASELINE),
     baselineRevision: BASELINE_REVISION,
-    odState: odStateAll(true),
+    ods: [],
+    odState: {},
     holidays: [...DEFAULT_HOLIDAYS],
+    record: null,
+    countSuspended: true,
   };
 }

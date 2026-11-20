@@ -1,0 +1,22 @@
+# Render blueprint: Render > New > Blueprint, pick this repository.
+# Fill in the secrets marked sync: false when Render asks for them.
+services:
+  - type: web
+    name: skip-planner
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

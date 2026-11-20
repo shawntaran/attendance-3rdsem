@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   COURSE_CODES,
-  ODS,
-  OD_TOTAL_HOURS,
   PORTAL_BASELINE,
   defaultSettings,
   odStateAll,
@@ -25,6 +23,8 @@ import {
   type Marks,
   type Plan,
 } from "./plan";
+import { STATIC_RECORD } from "./history";
+import { LEGACY_ODS as ODS } from "./storage";
 
 /** The two combinations the old global scenario switch offered. */
 type Scenario = "odsGranted" | "odsPending";
@@ -134,7 +134,10 @@ function plan(
       ...defaultSettings(),
       ...OLD_WINDOW,
       baseline: legacyBaseline(selection),
-      odState: opts.realOds ?? odStateAll(false),
+      // The real ODs only count against a record, so tests that use them get Shawn's.
+      ods: ODS,
+      record: opts.realOds ? STATIC_RECORD : null,
+      odState: opts.realOds ?? odStateAll(ODS, false),
       ...opts.extra,
     },
     marks: opts.marks ?? {},
@@ -432,10 +435,17 @@ describe("settings", () => {
 });
 
 describe("on-duty leaves", () => {
-  it("only the ODs not yet DL in the record are left: 29 Sep and the 17-18 Nov hackathon", () => {
+  it("the single-user ODs not yet DL in the record: 29 Sep and the 17-18 Nov hackathon", () => {
     expect(ODS.map((od) => od.id)).toEqual(["od-2026-09-29", "od-2026-11-17"]);
-    expect(OD_TOTAL_HOURS).toBe(1);
-    expect(ODS.map((od) => od.date)).toEqual([...ODS.map((od) => od.date)].sort());
+    const shawn = { ...defaultSettings(), record: STATIC_RECORD, ods: ODS, odState: odStateAll(ODS, true) };
+    expect(odHoursTotal(ODS[0], shawn)).toBe(1);
+  });
+
+  it("a new person has no record, no ODs and an empty baseline", () => {
+    const s = defaultSettings();
+    expect(s.record).toBeNull();
+    expect(s.ods).toEqual([]);
+    expect(COURSE_CODES.every((c) => effectiveBaseline(s)[c][1] === 0)).toBe(true);
   });
 
   it("legacy data: portal plus every old OD gave the old granted numbers", () => {
@@ -444,10 +454,11 @@ describe("on-duty leaves", () => {
     expect(legacyBaseline(baselineOds(false))).toEqual(LEGACY_PORTAL);
   });
 
-  it("the default baseline is the record's, and only the 29 Sep OD adds to it", () => {
-    const hours = countedOdHours(defaultSettings());
+  it("Shawn's baseline is the record's, and only the 29 Sep OD adds to it", () => {
+    const shawn = { ...defaultSettings(), record: STATIC_RECORD, ods: ODS, odState: odStateAll(ODS, true) };
+    const hours = countedOdHours(shawn);
     expect(COURSE_CODES.map((c) => hours[c])).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    const eff = effectiveBaseline(defaultSettings());
+    const eff = effectiveBaseline(shawn);
     expect(eff.CSE2252).toEqual([PORTAL_BASELINE.CSE2252[0] + 1, PORTAL_BASELINE.CSE2252[1]]);
     expect(eff.MAT2303).toEqual(PORTAL_BASELINE.MAT2303);
   });
@@ -491,7 +502,7 @@ describe("on-duty leaves", () => {
     }
     // The same rule on a real OD: 29 Sep with "already DL" adds nothing.
     const real = (t: { on: boolean; inPortal: boolean }) =>
-      plan({ realOds: { ...odStateAll(false), "od-2026-09-29": t } }).byCourse.CSE2252;
+      plan({ realOds: { ...odStateAll(ODS, false), "od-2026-09-29": t } }).byCourse.CSE2252;
     expect(real({ on: true, inPortal: true }).present).toBe(real({ on: false, inPortal: false }).present);
     expect(real({ on: true, inPortal: false }).present).toBe(real({ on: false, inPortal: false }).present + 1);
   });
@@ -696,11 +707,10 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
 describe("STEM for Impact Hackathon OD, 17-18 Nov", () => {
   const od = ODS.find((x) => x.id === PLAN_OD)!;
   const run = (on: boolean, today: string, marks: Marks = {}) =>
-    plan({ realOds: { ...odStateAll(false), [PLAN_OD]: { on, inPortal: false } }, today, marks, extra: NEW_WINDOW });
+    plan({ realOds: { ...odStateAll(ODS, false), [PLAN_OD]: { on, inPortal: false } }, today, marks, extra: NEW_WINDOW });
 
   it("covers every class on both days: 12 hours by the timetable", () => {
-    expect(od.dates).toEqual(["2026-11-17", "2026-11-18"]);
-    expect(od.hours).toEqual({});
+    expect(od.slots.map((x) => x.date)).toEqual(["2026-11-17", "2026-11-18"]);
     expect(odHoursByCourse(od, defaultSettings())).toEqual({
       CSE2257: 2, // Tue p1, Wed p3
       CSE2255: 2, // Tue p2, Wed p4
@@ -712,8 +722,6 @@ describe("STEM for Impact Hackathon OD, 17-18 Nov", () => {
       MAT2303: 1, // Wed p6
     });
     expect(odHoursTotal(od, defaultSettings())).toBe(12);
-    // It is on by default.
-    expect(defaultSettings().odState[PLAN_OD]).toEqual({ on: true, inPortal: false });
   });
 
   it("while on, those classes count as present and are not left unmarked", () => {

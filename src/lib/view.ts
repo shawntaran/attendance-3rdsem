@@ -3,7 +3,6 @@
 import {
   COURSE_NAME,
   FIXED_MUTED_DAYS,
-  ODS,
   WEEKDAY_NAME,
   WEEKDAY_SHORT,
   WINDOW_START,
@@ -146,8 +145,7 @@ export function reasonText(plan: Plan, session: PlanSession): string {
     case "attended":
       return `Marked attended. ${name} is at ${fmtPct(course.currentPct)} now.`;
     case "od": {
-      const od = ODS.find((x) => x.id === session.odId);
-      return `On duty${od ? ` (${od.reason})` : ""}: counted as present. To plan without it, switch the OD off in ODs.`;
+      return `On duty${session.odReason ? ` (${session.odReason})` : ""}: counted as present. To plan without it, switch the OD off in ODs.`;
     }
     case "unmarked":
       return `This class has passed and is not marked yet, so it is left out of your current %. Until you mark it, the plan counts it as missed. Marking it attended gives ${name} ${fmtHours(session.span)} more skip budget.`;

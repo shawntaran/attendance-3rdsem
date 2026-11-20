@@ -9,8 +9,12 @@ import type { CacheRecord, LocalCache, SyncConflict } from "./sync";
 
 const DB_NAME = "skip-planner";
 const STORE = "kv";
-const KEY = "cache";
-const FALLBACK_KEY = "skip-planner:cache";
+/** The pre-accounts cache: one planner per device, under this key. */
+const LEGACY_KEY = "cache";
+const LEGACY_FALLBACK_KEY = "skip-planner:cache";
+/** Since accounts: one cache per person on this device. */
+const keyFor = (user: string) => `cache:${user}`;
+const fallbackFor = (user: string) => `skip-planner:cache:${user}`;
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -89,34 +93,64 @@ function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBReque
   );
 }
 
-export async function loadLocalCache(): Promise<CacheRecord | null> {
+async function loadKey(key: string, fallback: string): Promise<CacheRecord | null> {
   try {
-    const raw = await tx("readonly", (s) => s.get(KEY));
+    const raw = await tx("readonly", (st) => st.get(key));
     const parsed = parseCacheRecord(raw);
     if (parsed) return parsed;
   } catch {
     // fall through to the fallback copy
   }
   try {
-    const raw = window.localStorage.getItem(FALLBACK_KEY);
+    const raw = window.localStorage.getItem(fallback);
     return raw ? parseCacheRecord(JSON.parse(raw)) : null;
   } catch {
     return null;
   }
 }
 
-export async function saveLocalCache(record: CacheRecord): Promise<void> {
+async function saveKey(key: string, fallback: string, record: CacheRecord): Promise<void> {
   try {
-    await tx("readwrite", (s) => s.put(structuredClone(record), KEY));
+    await tx("readwrite", (st) => st.put(structuredClone(record), key));
     try {
-      window.localStorage.removeItem(FALLBACK_KEY);
+      window.localStorage.removeItem(fallback);
     } catch {
       // ignore
     }
   } catch {
     // IndexedDB unavailable: keep the copy in localStorage instead.
-    window.localStorage.setItem(FALLBACK_KEY, JSON.stringify(record));
+    window.localStorage.setItem(fallback, JSON.stringify(record));
   }
 }
 
-export const localCache: LocalCache = { load: loadLocalCache, save: saveLocalCache };
+export function loadLocalCache(user: string): Promise<CacheRecord | null> {
+  return loadKey(keyFor(user), fallbackFor(user));
+}
+
+export function saveLocalCache(user: string, record: CacheRecord): Promise<void> {
+  return saveKey(keyFor(user), fallbackFor(user), record);
+}
+
+/** This person's cache on this device. */
+export function localCacheFor(user: string): LocalCache {
+  return { load: () => loadLocalCache(user), save: (rec) => saveLocalCache(user, rec) };
+}
+
+/** The planner this device had before accounts, if any. */
+export function loadPreAccountsCache(): Promise<CacheRecord | null> {
+  return loadKey(LEGACY_KEY, LEGACY_FALLBACK_KEY);
+}
+
+/** Forget the pre-accounts planner on this device (after it moved into an account). */
+export async function clearPreAccountsCache(): Promise<void> {
+  try {
+    await tx("readwrite", (st) => st.delete(LEGACY_KEY));
+  } catch {
+    // ignore
+  }
+  try {
+    window.localStorage.removeItem(LEGACY_FALLBACK_KEY);
+  } catch {
+    // ignore
+  }
+}

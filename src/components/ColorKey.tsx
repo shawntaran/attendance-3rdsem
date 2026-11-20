@@ -1,4 +1,4 @@
-import { ODS, type Settings } from "@/lib/config";
+import type { Settings } from "@/lib/config";
 import { formatDayMonth } from "@/lib/dates";
 import type { SessionStatus } from "@/lib/plan";
 import { STATUS_LABEL, endLabel, fmtHours, windowLabel } from "@/lib/view";
@@ -48,8 +48,10 @@ export function ColorKey({ settings }: { settings: Settings }) {
         </li>
       </ul>
       <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-subtle">
-        Based on portal attendance through {formatDayMonth(settings.baselineAsOf)}, plus {od.counted} of{" "}
-        {ODS.length} ODs counted as present.{" "}
+        {settings.record
+          ? `Based on your uploaded record through ${formatDayMonth(settings.baselineAsOf)}`
+          : `Based on the portal totals entered for ${formatDayMonth(settings.baselineAsOf)}`}
+        {od.total > 0 ? `, plus ${od.counted} of ${od.total} ODs counted as present` : ""}.{" "}
         Each course&rsquo;s green slots add up to its limit, so skipping any extra class breaks it. Green
         slots are placed as late as possible, so skips pile up in the final weeks.
       </p>

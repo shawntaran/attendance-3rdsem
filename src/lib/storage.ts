@@ -12,20 +12,22 @@ import {
   EXTRA_DAY_ADDITIONS,
   COURSE_CODES,
   MAX_WINDOW_END,
-  ODS,
+  PORTAL_BASELINE,
+  TEACHING_HOURS,
   WINDOW_START,
   defaultSettings,
-  odStateAll,
+  type AttendanceRecord,
   type Baseline,
   type CourseCode,
   type ExtraWorkingDay,
+  type OdLeave,
   type OdState,
   type Settings,
   type Theme,
   type TimetableWeekday,
 } from "./config";
 import { isValidDate, weekdayIndex } from "./dates";
-import { HISTORY, historyMark } from "./history";
+import { historyMark, recordHistory, STATIC_RECORD } from "./history";
 import type { Marks } from "./plan";
 
 export const STORAGE_KEY = "skip-planner:v3";
@@ -40,24 +42,58 @@ export interface AppState {
 }
 
 /**
- * Marks for the classes in the plan window that the past record already
- * covers (after BASELINE_AS_OF): attended or skipped, as the portal shows them.
+ * Marks for the classes in the plan window that a record covers (after
+ * `after`): attended or skipped, as the portal shows them. Defaults to the
+ * single-user record, for migrating that data.
  */
-export function recordMarks(): Marks {
+export function recordMarks(
+  record: AttendanceRecord = STATIC_RECORD,
+  after: string = BASELINE_AS_OF,
+  countSuspended = true,
+): Marks {
   const marks: Marks = {};
-  for (const day of HISTORY) {
-    if (day.date <= BASELINE_AS_OF) continue;
+  for (const day of recordHistory(record)) {
+    if (day.date <= after) continue;
     for (const cls of day.classes) {
-      const mark = historyMark(cls);
+      const mark = historyMark(cls, countSuspended);
       if (mark) marks[`${day.date}@${cls.startPeriod}`] = mark;
     }
   }
   return marks;
 }
 
-/** A fresh state starts from the record, like an older state that was migrated. */
+/** A new person: no record, no ODs, no marks. */
 export function defaultState(): AppState {
-  return { settings: defaultSettings(), marks: recordMarks() };
+  return { settings: defaultSettings(), marks: {} };
+}
+
+/**
+ * Put a freshly uploaded record into a state. Days it covers after
+ * baselineAsOf become marks, replacing marks on those classes (the portal is
+ * the record); marks on days it does not cover are kept.
+ */
+export function applyRecord(state: AppState, record: AttendanceRecord): AppState {
+  const marks: Marks = { ...state.marks };
+  for (const [id, mark] of Object.entries(recordMarks(record, state.settings.baselineAsOf, state.settings.countSuspended))) marks[id] = mark;
+  return { settings: { ...state.settings, record }, marks };
+}
+
+/** The two ODs of the single-user app, as days and hours (revision 6). */
+export const LEGACY_ODS: OdLeave[] = [
+  { id: "od-2026-09-29", reason: "French event, Seminar Hall", slots: [{ date: "2026-09-29", hours: [3] }] },
+  {
+    id: "od-2026-11-17",
+    reason: "STEM for Impact Hackathon",
+    slots: [
+      { date: "2026-11-17", hours: [...TEACHING_HOURS] },
+      { date: "2026-11-18", hours: [...TEACHING_HOURS] },
+    ],
+  },
+];
+
+/** Settings as the single-user app would have had them at revision 5, for its migrations. */
+export function legacyDefaults(): Settings {
+  return { ...defaultSettings(), baseline: structuredClone(PORTAL_BASELINE), baselineRevision: 5 };
 }
 
 const THEMES: Theme[] = ["system", "light", "dark"];
@@ -90,21 +126,82 @@ function parseBaseline(v: unknown): Baseline {
  * saved is missing from it: it gets the default (counted), instead of the
  * whole saved state being rejected. A present but malformed entry still fails.
  */
-function parseOdState(v: unknown): OdState {
+/**
+ * A switch per OD. Every OD in `ods` gets one (missing = switched on); other
+ * entries are kept as they are, so a migration can still read the switches
+ * of ODs that used to be built in.
+ */
+function parseOdState(v: unknown, ods: OdLeave[]): OdState {
+  if (v === undefined) v = {};
   if (!isObject(v)) throw new Error("odState");
   const out: OdState = {};
-  for (const od of ODS) {
-    const t = v[od.id];
-    if (t === undefined) {
-      out[od.id] = { on: true, inPortal: false };
-      continue;
+  for (const [id, t] of Object.entries(v)) {
+    if (id.length > 60 || !isObject(t) || typeof t.on !== "boolean" || typeof t.inPortal !== "boolean") {
+      throw new Error(`odState ${id}`);
     }
-    if (!isObject(t) || typeof t.on !== "boolean" || typeof t.inPortal !== "boolean") {
-      throw new Error(`odState ${od.id}`);
-    }
-    out[od.id] = { on: t.on, inPortal: t.inPortal };
+    out[id] = { on: t.on, inPortal: t.inPortal };
   }
+  for (const od of ods) out[od.id] ??= { on: true, inPortal: false };
   return out;
+}
+
+const OD_ID_RE = /^[a-z0-9-]{1,60}$/;
+
+/** A person's own ODs. Missing (states from before accounts) means none. */
+function parseOds(v: unknown): OdLeave[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.length > 200) throw new Error("ods");
+  const seen = new Set<string>();
+  return v.map((od) => {
+    if (!isObject(od) || typeof od.id !== "string" || !OD_ID_RE.test(od.id) || seen.has(od.id)) throw new Error("od id");
+    if (typeof od.reason !== "string" || od.reason.length > MAX_REASON_LENGTH) throw new Error("od reason");
+    if (!Array.isArray(od.slots) || od.slots.length === 0 || od.slots.length > 60) throw new Error("od slots");
+    seen.add(od.id);
+    const dates = new Set<string>();
+    const slots = od.slots.map((slot) => {
+      if (!isObject(slot) || !isValidDate(slot.date) || dates.has(slot.date)) throw new Error("od slot date");
+      if (!Array.isArray(slot.hours) || slot.hours.length === 0) throw new Error("od slot hours");
+      const hours = [...new Set(slot.hours)];
+      if (!hours.every((h) => (TEACHING_HOURS as readonly unknown[]).includes(h))) throw new Error("od slot hours");
+      dates.add(slot.date);
+      return { date: slot.date, hours: (hours as number[]).sort((a, b) => a - b) };
+    });
+    slots.sort((a, b) => a.date.localeCompare(b.date));
+    return { id: od.id, reason: od.reason, slots };
+  });
+}
+
+const RECORD_CODES_RE = /^[PADS.]{8}$/;
+
+/** A person's uploaded record. Missing means none yet. */
+function parseRecord(v: unknown): AttendanceRecord | null {
+  if (v === undefined || v === null) return null;
+  if (!isObject(v) || !Array.isArray(v.days) || !Array.isArray(v.holidays)) throw new Error("record");
+  if (v.days.length > 400 || v.holidays.length > 200) throw new Error("record size");
+  const seen = new Set<string>();
+  const days = v.days.map((d) => {
+    if (!Array.isArray(d) || d.length !== 2 || !isValidDate(d[0]) || typeof d[1] !== "string" || !RECORD_CODES_RE.test(d[1])) {
+      throw new Error("record day");
+    }
+    if (seen.has(d[0])) throw new Error("record duplicate day");
+    seen.add(d[0]);
+    return [d[0], d[1]] as [string, string];
+  });
+  const holidays = v.holidays.map((h) => {
+    if (!Array.isArray(h) || h.length !== 2 || !isValidDate(h[0]) || typeof h[1] !== "string" || h[1].length > 120) {
+      throw new Error("record holiday");
+    }
+    return [h[0], h[1]] as [string, string];
+  });
+  if (v.uploadedAt !== null && v.uploadedAt !== undefined && typeof v.uploadedAt !== "string") throw new Error("record uploadedAt");
+  days.sort((a, b) => a[0].localeCompare(b[0]));
+  holidays.sort((a, b) => a[0].localeCompare(b[0]));
+  return { days, holidays, uploadedAt: (v.uploadedAt as string | null | undefined) ?? null };
+}
+
+function parseBool(v: unknown, name: string): boolean {
+  if (typeof v !== "boolean") throw new Error(name);
+  return v;
 }
 
 function parseTheme(v: unknown): Theme {
@@ -166,6 +263,7 @@ function parseBaselineRevision(v: unknown): number | undefined {
 function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
   if (!isValidDate(v.baselineAsOf)) throw new Error("baselineAsOf");
   const revision = parseBaselineRevision(v.baselineRevision);
+  const ods = parseOds(v.ods);
   return {
     theme: parseTheme(v.theme),
     targetPct: parseTargetPct(v.targetPct),
@@ -173,8 +271,11 @@ function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
     baselineAsOf: v.baselineAsOf,
     baseline: parseBaseline(v.baseline),
     ...(revision === undefined ? {} : { baselineRevision: revision }),
-    odState: parseOdState(v.odState),
+    ods,
+    odState: parseOdState(v.odState, ods),
     holidays: parseHolidays(v.holidays),
+    record: parseRecord(v.record),
+    countSuspended: v.countSuspended === undefined ? true : parseBool(v.countSuspended, "countSuspended"),
   };
 }
 
@@ -187,12 +288,18 @@ function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
 /** The revision at which marks for 11-19 Nov are imported from the record. */
 export const MARKS_FROM_RECORD_REVISION = 5;
 
+/** The revision at which the single-user data moved into per-person settings. */
+export const ACCOUNTS_REVISION = 6;
+
 export function migrateState(state: AppState): AppState {
   const from = state.settings.baselineRevision ?? 1;
   if (from >= BASELINE_REVISION) return state;
   const baseline = { ...state.settings.baseline };
   const extraWorkingDays = [...state.settings.extraWorkingDays];
   const marks: Marks = { ...state.marks };
+  let ods = state.settings.ods;
+  let odState = state.settings.odState;
+  let record = state.settings.record;
   for (let rev = from + 1; rev <= BASELINE_REVISION; rev++) {
     for (const [code, step] of Object.entries(BASELINE_CORRECTIONS[rev] ?? {})) {
       if (!step) continue;
@@ -212,12 +319,32 @@ export function migrateState(state: AppState): AppState {
         if (marks[id] === undefined) marks[id] = mark;
       }
     }
+    if (rev === ACCOUNTS_REVISION) {
+      // Anything older than accounts is the single-user app's data: its record,
+      // and its two built-in ODs as days and hours, with their switches kept.
+      record ??= structuredClone(STATIC_RECORD);
+      ods = [...ods];
+      const switches: OdState = {};
+      for (const od of LEGACY_ODS) {
+        if (!ods.some((x) => x.id === od.id)) ods.push(structuredClone(od));
+      }
+      for (const od of ods) switches[od.id] = odState[od.id] ?? { on: true, inPortal: false };
+      odState = switches;
+    }
   }
   extraWorkingDays.sort((a, b) => a.date.localeCompare(b.date));
   return {
     ...state,
     marks,
-    settings: { ...state.settings, baseline, extraWorkingDays, baselineRevision: BASELINE_REVISION },
+    settings: {
+      ...state.settings,
+      baseline,
+      extraWorkingDays,
+      ods,
+      odState,
+      record,
+      baselineRevision: BASELINE_REVISION,
+    },
   };
 }
 
@@ -310,13 +437,15 @@ export function migrateV1(raw: string | null | undefined): AppState | null {
     if (old.scenario !== "odsGranted" && old.scenario !== "odsPending") throw new Error("scenario");
     return {
       settings: {
-        ...defaultSettings(),
+        ...legacyDefaults(),
         // The theme arrived late in v1, so older states do not have one.
         theme: old.theme === undefined ? "system" : parseTheme(old.theme),
         targetPct: parseTargetPct(old.targetPct),
         cushionHours: parseCushion(old.cushionHours),
         holidays: parseHolidays(old.holidays),
-        odState: odStateAll(old.scenario === "odsGranted"),
+        odState: Object.fromEntries(
+          LEGACY_ODS.map((od) => [od.id, { on: old.scenario === "odsGranted", inPortal: false }]),
+        ),
       },
       marks: parseMarks(data.marks),
     };

@@ -15,12 +15,19 @@ import {
   tryValidateState,
   validateState,
   type AppState,
+  LEGACY_ODS,
+  legacyDefaults,
 } from "./storage";
 import { newRecord, syncWithMigration } from "./sync";
 
+/** A single-user state at revision 5, the last one before accounts. */
+function rev5(): AppState {
+  return { settings: legacyDefaults(), marks: recordMarks() };
+}
+
 /** A state as saved before the swap-week correction: old numbers, no revision field. */
 function oldState(): AppState {
-  const s = defaultState();
+  const s: AppState = { settings: legacyDefaults(), marks: {} };
   delete s.settings.baselineRevision;
   s.settings.baseline = { ...s.settings.baseline, CSE2253: [25, 33], CSE2258: [27, 34], MAT2303: [26, 38] };
   return s;
@@ -41,8 +48,8 @@ function store(data: Record<string, string>) {
 describe("defaults", () => {
   it("held hours total 334 (313 plus 21 suspended) and new states start at the current revision", () => {
     expect(COURSE_CODES.reduce((sum, c) => sum + PORTAL_BASELINE[c][1], 0)).toBe(334);
-    expect(BASELINE_REVISION).toBe(5);
-    expect(defaultState().settings.baselineRevision).toBe(5);
+    expect(BASELINE_REVISION).toBe(6);
+    expect(defaultState().settings.baselineRevision).toBe(6);
     expect(migrateState(defaultState())).toEqual(defaultState());
   });
 });
@@ -51,7 +58,7 @@ describe("migrateState", () => {
   it("replaces untouched old defaults with the corrected numbers", () => {
     const m = migrateState(oldState());
     expect(m.settings.baseline).toMatchObject(NEW);
-    expect(m.settings.baselineRevision).toBe(5);
+    expect(m.settings.baselineRevision).toBe(6);
     // The other eight courses are unchanged.
     for (const c of COURSE_CODES.filter((c) => !(c in NEW))) expect(m.settings.baseline[c]).toEqual(PORTAL_BASELINE[c]);
   });
@@ -79,9 +86,9 @@ describe("migrateState", () => {
   it("leaves marks and every other setting alone", () => {
     const s = oldState();
     s.marks["2026-11-12@1"] = "skipped";
-    s.settings.odState = odStateAll(false);
+    s.settings.odState = odStateAll(LEGACY_ODS, false);
     const m = migrateState(s);
-    expect(m.marks).toEqual(s.marks);
+    expect(m.marks["2026-11-12@1"]).toBe("skipped");
     expect(m.settings.odState).toEqual(s.settings.odState);
   });
 });
@@ -89,7 +96,7 @@ describe("migrateState", () => {
 describe("validators", () => {
   it("accept states with and without baselineRevision, and reject a bad one", () => {
     expect(validateState(oldState()).settings.baselineRevision).toBeUndefined();
-    expect(validateState(defaultState()).settings.baselineRevision).toBe(5);
+    expect(validateState(defaultState()).settings.baselineRevision).toBe(6);
     const bad = defaultState() as unknown as { settings: Record<string, unknown> };
     bad.settings.baselineRevision = "2";
     expect(tryValidateState(bad)).toBeNull();
@@ -130,7 +137,7 @@ describe("legacy chain", () => {
     });
     const state = readLegacy(store({ [STORAGE_KEY_V1]: raw }))!.state;
     expect(state.settings.baseline).toMatchObject(NEW);
-    expect(state.settings.baselineRevision).toBe(5);
+    expect(state.settings.baselineRevision).toBe(6);
   });
 });
 
@@ -153,7 +160,7 @@ describe("cache and merge", () => {
   it("a remote that already has the new numbers merges cleanly with a local that had the old ones", () => {
     const local = migrateState(oldState());
     local.marks["2026-11-12@1"] = "skipped";
-    const remote = defaultState();
+    const remote = migrateState(rev5());
     remote.marks["2026-11-13@1"] = "attended";
     const { merged, conflicts } = mergeStates(migrateState(oldState()), local, remote);
     expect(conflicts).toEqual([]);
@@ -184,17 +191,17 @@ describe("revision 3: Sat 21 Nov working day", () => {
   const SAT = { date: "2026-11-21", followsWeekday: 1, reason: "Saturday working day" };
 
   it("adds 21 Nov to a revision-2 state, keeping its other days", () => {
-    const s = defaultState();
+    const s = rev5();
     s.settings.baselineRevision = 2;
     s.settings.extraWorkingDays = [{ date: "2026-12-05", followsWeekday: 1, reason: "Make-up for Mon 9 Nov holiday" }];
     const m = migrateState(s);
     expect(m.settings.extraWorkingDays.map((x) => x.date)).toEqual(["2026-11-21", "2026-12-05"]);
     expect(m.settings.extraWorkingDays[0]).toEqual(SAT);
-    expect(m.settings.baselineRevision).toBe(5);
+    expect(m.settings.baselineRevision).toBe(6);
   });
 
   it("keeps an entry for 21 Nov set by hand", () => {
-    const s = defaultState();
+    const s = rev5();
     s.settings.baselineRevision = 2;
     s.settings.extraWorkingDays = [{ date: "2026-11-21", followsWeekday: 5, reason: "mine" }];
     expect(migrateState(s).settings.extraWorkingDays).toEqual([{ date: "2026-11-21", followsWeekday: 5, reason: "mine" }]);
@@ -220,8 +227,9 @@ describe("revision 3: Sat 21 Nov working day", () => {
 });
 
 describe("revision 5: 11-19 Nov marks from the record", () => {
-  it("a fresh state starts with the record's marks for the plan window", () => {
-    const marks = defaultState().marks;
+  it("a revision-4 single-user state gets the record's marks for the plan window", () => {
+    const s: AppState = { settings: { ...legacyDefaults(), baselineRevision: 4 }, marks: {} };
+    const marks = migrateState(s).marks;
     expect(Object.keys(marks)).toHaveLength(33);
     expect(marks["2026-11-13@1"]).toBe("skipped"); // Fri 13 Nov Comp Org: A
     expect(marks["2026-11-16@3"]).toBe("attended"); // Mon 16 Nov DS Lab: P P
@@ -230,12 +238,33 @@ describe("revision 5: 11-19 Nov marks from the record", () => {
   });
 
   it("an older state gets the record marks, but keeps the ones you set yourself", () => {
-    const s = defaultState();
+    const s = rev5();
     s.settings.baselineRevision = 4;
     s.marks = { "2026-11-13@1": "attended" }; // you say you went
     const m = migrateState(s);
     expect(m.marks["2026-11-13@1"]).toBe("attended");
     expect(m.marks["2026-11-19@3"]).toBe("skipped");
     expect(Object.keys(m.marks)).toHaveLength(33);
+  });
+});
+
+describe("revision 6: accounts", () => {
+  it("a single-user state gets the built-in record and the two old ODs, keeping its switches", () => {
+    const s = rev5();
+    s.settings.odState = { "od-2026-09-29": { on: false, inPortal: false } };
+    const m = migrateState(s);
+    expect(m.settings.record?.days.length).toBe(64);
+    expect(m.settings.ods.map((o) => o.id)).toEqual(LEGACY_ODS.map((o) => o.id));
+    expect(m.settings.odState["od-2026-09-29"].on).toBe(false);
+    expect(m.settings.odState["od-2026-11-17"].on).toBe(true);
+    expect(m.settings.countSuspended).toBe(true);
+  });
+
+  it("a new person's state is left blank", () => {
+    const s = defaultState();
+    expect(migrateState(s)).toBe(s);
+    expect(s.settings.record).toBeNull();
+    expect(s.settings.ods).toEqual([]);
+    expect(s.marks).toEqual({});
   });
 });

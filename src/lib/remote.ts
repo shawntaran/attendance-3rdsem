@@ -1,7 +1,6 @@
 // Client side of /api/planner. Never talks to the database directly: the browser
 // only ever sees this app's own API, and the database API key stays on the server.
 
-import { getAccessKey } from "./accessKey";
 import { migrateState, tryValidateState, type AppState } from "./storage";
 
 export interface RemoteRecord {
@@ -57,12 +56,7 @@ async function failureFrom(res: Response): Promise<SyncFailure> {
     // not JSON
   }
   if (code === "not_configured") return { kind: "not_configured", message: "Cloud sync is not set up on the server." };
-  if (res.status === 401) {
-    return {
-      kind: "unauthorized",
-      message: getAccessKey() ? "The access key on this device is wrong." : "This device needs the access key.",
-    };
-  }
+  if (res.status === 401) return { kind: "unauthorized", message: "You are signed out. Sign in again to sync." };
   return { kind: "server", message };
 }
 
@@ -71,17 +65,13 @@ function offline(err: unknown): SyncFailure {
   return { kind: "offline", message: aborted ? "The server took too long to answer." : "No connection to the server." };
 }
 
-function authHeaders(): Record<string, string> {
-  const key = getAccessKey();
-  return key ? { Authorization: `Bearer ${key}` } : {};
-}
-
 async function request(init: RequestInit): Promise<Response> {
   return fetch(ENDPOINT, {
     ...init,
     cache: "no-store",
     signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
   });
 }
 
@@ -133,7 +123,8 @@ export function saveRemoteStateOnExit(state: AppState, expectedVersion: number):
       method: "PUT",
       body,
       keepalive: true,
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
     });
   } catch {
     // ignore: the pending change is still in the cache

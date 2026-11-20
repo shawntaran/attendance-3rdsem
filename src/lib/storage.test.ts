@@ -4,12 +4,15 @@ import {
   STORAGE_KEY,
   STORAGE_KEY_V1,
   STORAGE_KEY_V2,
+  applyRecord,
   defaultState,
+  tryValidateState,
   loadFrom,
   migrateV1,
   migrateV2,
   parseState,
   type KeyValueStore,
+  LEGACY_ODS,
 } from "./storage";
 
 function memoryStore(initial: Record<string, string> = {}): KeyValueStore & { data: Record<string, string> } {
@@ -133,7 +136,7 @@ describe("v1 to v2 migration", () => {
     expect(settings.holidays).toEqual(["2026-11-20"]);
     expect(settings.theme).toBe("dark");
     // Scenario turned into OD switches.
-    expect(settings.odState).toEqual(odStateAll(on));
+    expect(settings.odState).toEqual(odStateAll(LEGACY_ODS, on));
     // Baseline reset to the new portal defaults.
     expect(settings.baseline).toEqual(PORTAL_BASELINE);
     expect(settings.baselineAsOf).toBe("2026-11-10");
@@ -159,7 +162,7 @@ describe("v1 to v2 migration", () => {
   it("loadFrom migrates once, writes v3 and removes v1", () => {
     const store = memoryStore({ [STORAGE_KEY_V1]: JSON.stringify(v1State("odsPending")) });
     const state = loadFrom(store);
-    expect(state.settings.odState).toEqual(odStateAll(false));
+    expect(state.settings.odState).toEqual(odStateAll(LEGACY_ODS, false));
     expect(store.data[STORAGE_KEY_V1]).toBeUndefined();
     expect(JSON.parse(store.data[STORAGE_KEY])).toEqual(state);
     expect(loadFrom(store)).toEqual(state);
@@ -236,8 +239,10 @@ describe("v2 to v3 migration", () => {
 });
 
 describe("ODs added after a state was saved", () => {
-  it("a saved state without the 17-18 Nov OD keeps everything and gets the OD switched on", () => {
+  it("an OD with no switch saved keeps everything and gets the OD switched on", () => {
     const state = defaultState();
+    state.settings.ods = LEGACY_ODS;
+    state.settings.odState = odStateAll(LEGACY_ODS, true);
     state.marks["2026-11-12@1"] = "skipped";
     state.settings.odState["od-2026-09-29"] = { on: false, inPortal: true };
     const { ["od-2026-11-17"]: _gone, ...older } = state.settings.odState;
@@ -245,5 +250,46 @@ describe("ODs added after a state was saved", () => {
     expect(parsed.marks).toEqual(state.marks);
     expect(parsed.settings.odState["od-2026-09-29"]).toEqual({ on: false, inPortal: true });
     expect(parsed.settings.odState["od-2026-11-17"]).toEqual({ on: true, inPortal: false });
+  });
+});
+
+describe("per-person record and ODs", () => {
+  const record = {
+    days: [
+      ["2026-11-12", "PPAA.P.."], // Thu
+      ["2026-11-13", "A......."], // Fri
+    ] as [string, string][],
+    holidays: [] as [string, string][],
+    uploadedAt: "2026-11-20T10:00:00.000Z",
+  };
+
+  it("applyRecord saves the record and turns its plan-window days into marks", () => {
+    const s = defaultState();
+    s.marks["2026-11-25@1"] = "attended"; // a day the record does not cover: kept
+    const next = applyRecord(s, record);
+    expect(next.settings.record).toEqual(record);
+    expect(next.marks["2026-11-13@1"]).toBe("skipped");
+    expect(next.marks["2026-11-25@1"]).toBe("attended");
+  });
+
+  it("a newer upload replaces marks on the days it covers", () => {
+    const s = defaultState();
+    s.marks["2026-11-13@1"] = "attended";
+    expect(applyRecord(s, record).marks["2026-11-13@1"]).toBe("skipped");
+  });
+
+  it("states with a record and ODs survive validation; bad ones are refused", () => {
+    const s = applyRecord(defaultState(), record);
+    s.settings.ods = LEGACY_ODS;
+    s.settings.odState = odStateAll(LEGACY_ODS, true);
+    expect(parseState(JSON.stringify(s))).toEqual(s);
+
+    const badCodes = structuredClone(s);
+    badCodes.settings.record!.days[0][1] = "PPXX....";
+    expect(tryValidateState(JSON.parse(JSON.stringify(badCodes)))).toBeNull();
+
+    const badHour = structuredClone(s);
+    badHour.settings.ods[0].slots[0].hours = [5]; // hour 5 is lunch
+    expect(tryValidateState(JSON.parse(JSON.stringify(badHour)))).toBeNull();
   });
 });

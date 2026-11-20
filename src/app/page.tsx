@@ -1,9 +1,5 @@
-import { Planner } from "@/components/Planner";
+import { AuthGate } from "@/components/AuthGate";
 
 export default function Home() {
-  return (
-    <main>
-      <Planner />
-    </main>
-  );
+  return <AuthGate />;
 }

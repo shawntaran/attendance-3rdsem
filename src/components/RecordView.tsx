@@ -1,19 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BASELINE_AS_OF, COURSES, COURSE_NAME, PERIODS } from "@/lib/config";
+import { COURSES, COURSE_NAME, PERIODS, type AttendanceRecord, type Settings } from "@/lib/config";
 import { addDays, formatDate, formatDayMonth, weekdayName } from "@/lib/dates";
 import {
-  COUNT_SUSPENDED_AS_ABSENT,
-  HISTORY_FROM,
-  HISTORY_TO,
   historyTotals,
+  recordHistory,
   historyWeeks,
   TIMETABLE_CHANGED_ON,
   type HistoryClass,
   type HourStatus,
 } from "@/lib/history";
 import { fmtPct } from "@/lib/view";
+import { RecordUpload } from "./RecordUpload";
 import { AlertCircleIcon, CheckCircleIcon, SkipIcon } from "./icons";
 
 // Same column layout as the plan grid: day | 1 | 2 | break | 3 | 4 | lunch | 6 | break | 7 | 8
@@ -61,14 +60,38 @@ function ariaFor(cls: HistoryClass): string {
 
 interface Props {
   isDesktop: boolean;
+  settings: Settings;
+  onApply: (record: AttendanceRecord) => void;
 }
 
 /** The past record as timetable weeks: every class marked present, absent, OD or suspended. */
-export function RecordView({ isDesktop }: Props) {
-  const weeks = useMemo(() => historyWeeks(), []);
+export function RecordView({ isDesktop, settings, onApply }: Props) {
+  if (!settings.record || settings.record.days.length === 0) {
+    return (
+      <div className="mt-4 rounded-xl border border-line bg-surface p-4 desk:p-5">
+        <p className="text-sm">
+          No record yet. Upload the Daily Attendance report from the portal to see every past class here.
+        </p>
+        <div className="mt-3 max-w-sm">
+          <RecordUpload onApply={onApply} />
+        </div>
+      </div>
+    );
+  }
+  return <RecordWeeks isDesktop={isDesktop} settings={settings} record={settings.record} />;
+}
+
+function RecordWeeks({ isDesktop, settings, record }: { isDesktop: boolean; settings: Settings; record: AttendanceRecord }) {
+  const days = useMemo(() => recordHistory(record), [record]);
+  const weeks = useMemo(() => historyWeeks(days), [days]);
   const [index, setIndex] = useState(weeks.length - 1);
-  const week = weeks[index];
-  const totals = useMemo(() => historyTotals(BASELINE_AS_OF), []);
+  const safe = Math.min(Math.max(0, index), weeks.length - 1);
+  const week = weeks[safe];
+  const asOf = settings.baselineAsOf;
+  const countSuspended = settings.countSuspended;
+  const totals = useMemo(() => historyTotals(asOf, countSuspended, days), [asOf, countSuspended, days]);
+  const from = days[0].date;
+  const to = days[days.length - 1].date;
   const changeWeek = TIMETABLE_CHANGED_ON > week.monday && TIMETABLE_CHANGED_ON <= addDays(week.monday, 4);
 
   return (
@@ -77,7 +100,7 @@ export function RecordView({ isDesktop }: Props) {
         <button
           type="button"
           onClick={() => setIndex((i) => Math.max(0, i - 1))}
-          disabled={index === 0}
+          disabled={safe === 0}
           aria-label="Previous week"
           className="min-h-11 min-w-11 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal disabled:opacity-40"
         >
@@ -86,7 +109,7 @@ export function RecordView({ isDesktop }: Props) {
         <label className="text-sm font-semibold">
           <span className="sr-only">Week</span>
           <select
-            value={index}
+            value={safe}
             onChange={(e) => setIndex(Number(e.target.value))}
             className="min-h-11 rounded-lg border-[1.5px] border-field bg-surface px-2.5 text-sm text-ink"
           >
@@ -100,7 +123,7 @@ export function RecordView({ isDesktop }: Props) {
         <button
           type="button"
           onClick={() => setIndex((i) => Math.min(weeks.length - 1, i + 1))}
-          disabled={index === weeks.length - 1}
+          disabled={safe === weeks.length - 1}
           aria-label="Next week"
           className="min-h-11 min-w-11 rounded-lg border-[1.5px] border-line bg-surface px-3 text-sm font-semibold hover:border-teal disabled:opacity-40"
         >
@@ -123,12 +146,14 @@ export function RecordView({ isDesktop }: Props) {
 
       <section aria-labelledby="record-totals" className="mt-4 rounded-xl border border-line bg-surface p-4 desk:p-5">
         <h2 id="record-totals" className="font-display text-base font-bold desk:text-lg">
-          Record by course, {formatDayMonth(HISTORY_FROM)} to {formatDayMonth(BASELINE_AS_OF)}
+          Record by course, {formatDayMonth(from)} to {formatDayMonth(to < asOf ? to : asOf)}
         </h2>
         <p className="mt-0.5 text-xs text-subtle">
           This is the baseline the plan starts from. DL counts as present
-          {COUNT_SUSPENDED_AS_ABSENT ? "; suspended hours count as held but not attended" : ""}. Classes from{" "}
-          {formatDayMonth(addDays(BASELINE_AS_OF, 1))} to {formatDayMonth(HISTORY_TO)} are in the plan as marks.
+          {countSuspended ? "; suspended hours count as held but not attended" : "; suspended hours are left out"}.
+          {to > asOf
+            ? ` Classes from ${formatDayMonth(addDays(asOf, 1))} to ${formatDayMonth(to)} are in the plan as marks.`
+            : ""}
         </p>
         <div className="mt-2 overflow-x-auto">
           <table className="w-full min-w-[520px] border-collapse text-sm">

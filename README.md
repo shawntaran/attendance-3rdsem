@@ -11,12 +11,14 @@ finish every one of the 11 courses at 75% attendance or more on the last day of 
   final % if you skip every green class.
 - The window's last day ("Plan until") and extra working days, such as Sat 5 Dec running Monday's
   timetable, are settings. Week tabs, dates and labels follow them.
-- A switch per OD (on-duty leave), because each one is granted or not on its own. Flip any
-  combination and see the skip budget change at once.
-- Cloud sync: the same marks and settings on every device, through an Appwrite database behind
-  this app's own API. No accounts: it is a single-user planner, locked with one private access
-  key that each of your devices enters once. It keeps working offline and syncs
-  when the connection is back. See [Cloud sync](#cloud-sync).
+- Accounts with just a name and a PIN. Each person uploads the portal's Daily Attendance export
+  (.xlsx) and gets their own plan: every present, absent, DL and suspended hour is placed on the
+  timetable it ran on (old timetable until 16 Sep, current from 17 Sep).
+- Each person adds their own ODs (on-duty leaves): a reason, one or more days, and which hours.
+  Each OD has a switch, because each one is granted or not on its own.
+- Cloud sync per person: the same planner on every device you sign in on, through this app's own
+  API (Supabase or Appwrite behind it). It keeps working offline and syncs when the connection is
+  back. See [Accounts and cloud sync](#accounts-and-cloud-sync).
 - What-if holidays: the switch on each day's title turns that day off and recalculates at once
   as if it were a holiday. A panel shows, for each course that loses classes, the final % (if you
   attend everything, and if you skip every green) and the skip budget, before and after. It is a
@@ -100,73 +102,60 @@ which would be read as UTC and can land on the wrong day.
 
 ## On-duty leaves (OD)
 
-The app keeps two things apart:
+Each person keeps their own list in `settings.ods`: `{ id, reason, slots: [{ date, hours }] }`,
+where `hours` are teaching hours (1 to 4, 6 to 8). **ODs > + Add an OD** asks for a reason, one or
+more days, and the hours of each day (all of them by default, "Whole day" toggles them). Each OD has
+a switch (`odState[id].on`), **Count all / Count none**, and **Remove**.
 
-- **Baseline.** Present and held hours per course up to `baselineAsOf` (10 Nov), worked out class
-  by class from the past record (see [Past record](#past-record)). DL counts as present;
-  suspended hours count as held but not attended. An OD still pending is an absence in these
-  numbers. Defaults: `PORTAL_BASELINE` in [`src/lib/config.ts`](src/lib/config.ts).
-- **ODs.** The on-duty leaves in `ODS` that are not yet DL. There are two kinds:
-  - **Baseline ODs**, before 10 Nov. Each lists, per course, the absent hours in the baseline that
-    it would turn into present hours. Only one is left: **29 Sep, French event** (DCCN Lab +1);
-    both lab hours that day are still absent in the record. The other ten (12 Aug, 4 Sep, 15, 16,
-    17 and 24 Sep, 27, 29 and 30 Oct) are DLs in the record now, so they were removed.
-  - **Plan ODs**, with `dates` inside the plan window. While switched on, every class on those days
-    counts as present (attended and held) and shows as **On duty**, whatever is marked there;
-    switching the OD off brings the marks back. Their hours come from the timetable. Currently one:
-    the **STEM for Impact Hackathon**, Tue 17 and Wed 18 Nov (12 hours).
+What an OD that is switched on does depends on the day:
 
-  A saved state from before an OD was added simply gets that OD switched on; nothing else in it
-  changes.
+- **Before the plan (on or before `baselineAsOf`):** hours that are *absent* in your uploaded
+  record become present in the baseline (the course gets +1 present per hour; held is unchanged,
+  as those hours are already held). Hours already DL or present add nothing, so an OD the portal
+  has caught up on simply shows "Nothing to count" once you upload a newer export.
+- **In the plan:** every class in those hours shows **On duty** and counts as present (attended
+  and held), whatever is marked there. Switching the OD off brings the marks back.
 
-Each OD has two flags, saved as `odState[odId] = { on, inPortal }`:
+The list shows the hours per course each OD adds, and every change shows a toast with the skip
+budgets that moved, with an Undo.
 
-| Flag | Meaning |
-| --- | --- |
-| `on` | Count this OD's hours as present. Default: on for every OD. |
-| `inPortal` | "Already shows DL on the portal": the hours are already inside the baseline, so the OD adds nothing and its switch is disabled. This is what stops double counting. Default: off. Baseline ODs only; a plan OD's days drop out of the plan by themselves once `baselineAsOf` moves past them. |
-
-The baseline the rules start from is then:
-
-```
-P(course) = portal present(course) + sum of od.hours[course] for every OD that is on and not inPortal
-H(course) = portal held(course)        (unchanged: those hours are already held, as absences)
-```
-
-Everything after that (marks, past days, budget formula, latest-first allocation) is the same as
-above. With all ten baseline ODs on you get the old "ODs granted" numbers, with none the old
-"ODs pending" numbers.
-
-In the app: the **ODs 11/11** button in the header (or **Settings**) opens the list. Each row has
-the date, the reason, the hours per course, a switch, and the "Already shows DL on the portal"
-box. "Count all" and "Count none" flip every switch. Each change shows a toast such as
-"Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0" with an Undo, and the allowance table
-shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in it.
+The two ODs of the single-user version (29 Sep hour 3, French event; 17 and 18 Nov whole days,
+STEM for Impact Hackathon) are added to that planner when it is moved into an account (revision 6),
+with its switches kept.
 
 ## Past record
 
-**Plan / Past record** next to the week tabs switches to every past week laid out as the timetable
-it ran, with each class marked **Present**, **Absent**, **OD (DL)** or **Suspended**, holidays named,
-and a table of totals per course. It is read-only.
+Each person uploads the portal's **Daily Attendance** report as an Excel file: on first sign-in
+(the "add your attendance" card), in **Settings > Your attendance record**, or in **Past record**.
+The file is read in the browser ([`src/lib/recordImport.ts`](src/lib/recordImport.ts), no
+library: the xlsx zip is opened with `DecompressionStream`); only the hour codes are kept, as
+`settings.record = { days: [[date, "PPAD.S.."]], holidays: [[date, name]], uploadedAt }`
+(P present, A absent, D DL/OD, S suspended/blocked, `.` no class). Before saving, the app shows the
+date range and lists any day whose hours do not fit the timetable that day ran.
 
-The data is the portal's Daily Attendance report, 5 Aug to 19 Nov 2026
-([`src/lib/historyData.ts`](src/lib/historyData.ts)): one status per hour, with no course names.
 [`src/lib/history.ts`](src/lib/history.ts) places each hour on its course:
 
 - **Until 16 Sep:** the old timetable (`OLD_TIMETABLE`). It differs from the current one on
   Monday (OOP Java hour 1, Linear Algebra hour 2), Thursday (Comp Org in hour 6) and Friday
   (Web Tech hour 1, Linear Algebra hour 7, no hour 8).
 - **From 17 Sep:** the current timetable.
-- **Wed 9 Sep** ran Friday's timetable, as the portal's week-wise report for 7 to 13 Sep shows;
-  Fri 11 Sep was a normal Friday in that report.
+- **Wed 9 Sep** ran Friday's timetable (`HISTORY_DAY_TIMETABLES`).
 
-Every class day fits its timetable hour for hour; the only gap is hour 7 on Fri 4 Sep, which was
-not recorded (treated as not held). Sat 31 Oct was a teaching day by circular PU/2026/234, but the
-report has no entry for it, so it is not counted. `COUNT_SUSPENDED_AS_ABSENT` in `history.ts`
-counts suspended hours as held but not attended; set it to `false` to match the portal.
+From the record:
 
-Classes from 11 to 19 Nov are inside the plan window, so they come in as marks (P attended, A
-skipped) for any class you had not marked yourself (revision 5).
+- **Baseline:** present and held per course up to `baselineAsOf` (10 Nov). DL counts as present.
+  Suspended hours count as held but not attended, unless the person switches off **Count suspended
+  hours as missed** in Settings.
+- **Marks:** classes after `baselineAsOf` that the record covers become marks (all hours present
+  or DL: attended; none: skipped; a lab split both ways is left unmarked). An upload replaces the
+  marks on the days it covers and keeps the rest.
+
+**Plan / Past record** next to the week tabs shows every week of the record laid out as the
+timetable it ran, with each class marked **Present**, **Absent**, **OD (DL)** or **Suspended**,
+holidays named, and totals per course.
+
+Without a record, the baseline is what was typed in **Settings > Or type the portal totals**
+(all zero for a new account).
 
 ## Plan window and extra working days
 
@@ -194,134 +183,155 @@ working day; Sunday is never shown. Days in a shown week but outside the window 
 "Outside plan". Session ids stay `${date}@${startPeriod}`, so marks keep working. The rules are
 unchanged: a longer window just means more remaining hours, which raises some budgets.
 
-## Cloud sync
+## Accounts and cloud sync
 
-### How it works
+### Signing in
+
+- **Name + PIN.** The name is turned into a key (lowercase, letters and digits, dashes between
+  words: "Shawn T" becomes `shawn-t`), so names are case-insensitive and first come, first served.
+  The PIN is 4 to 6 digits, stored only as a scrypt hash.
+- **Wrong PINs:** after 5 in a row the name is locked for 15 minutes. An unknown name and a wrong
+  PIN get the same answer, so the sign-in form does not reveal who has an account.
+- **Session:** an httpOnly, SameSite=Lax cookie (`sp_session`, Secure in production) holding the
+  name key and expiry, signed with HMAC-SHA256 using `SESSION_SECRET`. It lasts 180 days.
+  Changing `SESSION_SECRET` signs everyone out.
+- **Forgotten PIN:** there is no reset. Delete the person's row from `users` in the database
+  console (on Supabase that also deletes their planner; on Appwrite delete their `planner_versions`
+  rows too) and they sign up again.
+- **Offline:** the app opens the last account used on the device from its cache, and syncs once
+  the connection is back.
+- **No database configured:** the sign-in screen offers **Use on this device**, which keeps the
+  planner on the device only.
+- **Moving the old planner in:** a device that used the app before accounts is asked, on the first
+  sign-in, whether that planner belongs to this person. **Yes** uploads it to the account (with the
+  revision 6 migration: the built-in past record and the two old ODs); **No** starts fresh.
+
+### How sync works
 
 ```
-Browser (each device)                    Vercel (server)                Appwrite
------------------------------            ---------------------          ------------------
-Planner UI                               /api/planner                   planner_versions
-  usePlannerSync -> SyncEngine   <---->    GET: newest version    <-->    one row per version:
-  IndexedDB cache (this device)            PUT: save as n+1 only            v1, v2, ... (state
-                                           if still at n (else 409)         JSON + version)
+Browser (each device)                    Server (Vercel or Render)          Database
+-----------------------------            -------------------------          -----------------------
+Sign-in screen                           /api/auth/signup, login,           users
+                                           logout, me (sets the cookie)       one row per person
+Planner UI                               /api/planner (needs the cookie)    planner_versions
+  usePlannerSync -> SyncEngine   <---->    GET: your newest version   <-->    one row per version
+  IndexedDB cache per person               PUT: save as n+1 only              per person
+                                           if still at n (else 409)
 ```
 
-- **The cloud is the source of truth.** The newest row in `planner_versions` holds the whole
-  `AppState` (settings, ODs, baseline, plan window, marks) as JSON, plus its `version` number.
-  The plan itself is still computed in the browser by `computePlan()`; only the inputs are
-  stored. The last 200 versions are kept as history; older ones are pruned.
-- **The browser never talks to Appwrite.** It calls `/api/planner` on this app. The route uses an
-  Appwrite API key that exists only on the server. The table has no permissions and no row
-  security, so nothing but a server API key can read or change it.
-- **Access key.** Every request to `/api/planner` must carry the key from the server's
-  `PLANNER_ACCESS_KEY` (`Authorization: Bearer <key>`), checked in constant time before the
-  database is touched. Without it the API answers 401. With no key configured on the server it
-  refuses everyone (fails closed). Each device stores its copy of the key in localStorage.
-- **No silent overwrites.** Every save sends the version it was based on, and the server sets the
-  new version itself. Saving on top of version n means creating the row `v{n+1}`: Appwrite refuses
-  a row id that already exists, and a unique index on `version` backs that up, so of two devices
-  saving from the same version exactly one succeeds. The other gets 409 with what is there now and
-  merges. After each save the server also checks that its row is the newest, which rules out a
-  device hundreds of saves behind slipping into pruned history. Reads ask Appwrite not to cache.
-- **Local first.** On launch the app shows this device's cached copy (IndexedDB) at once, then
-  fetches the cloud copy and reconciles. Edits are cached immediately and sent after a 0.8 s
-  pause. Changes from other devices are picked up every 15 s while the tab is visible, and at
-  once when the tab comes back into view, the window gets focus or the network returns.
-- **Merging, not last-write-wins.** When the cloud moved on while this device had unsent changes,
-  the two are merged entry by entry: each attendance mark (by session id), each setting, each
-  baseline course, each OD, each holiday and each extra working day. Different entries combine
-  cleanly. Only the same entry changed differently on two devices is a conflict.
-- **Offline.** The planner keeps working; edits stay in IndexedDB as pending and are retried
-  (with backoff, and on reconnect). A failed save never drops them. When the page is closed with
-  changes pending, one last save is attempted; whether or not it lands, the change is still in the
-  cache and is reconciled on the next launch.
+- **The cloud is the source of truth.** A person's newest row in `planner_versions` holds their
+  whole `AppState` (settings, record, ODs, plan window, marks) as JSON. The plan itself is
+  computed in the browser by `computePlan()`. The last 200 versions per person are kept.
+- **The browser never talks to the database.** It calls this app's API; the database key exists
+  only on the server, and the tables refuse everyone else (see below).
+- **No silent overwrites.** Every save sends the version it was based on. Saving on top of version
+  n means inserting `(person, n+1)`, which the primary key (Supabase) or row id plus unique index
+  (Appwrite) lets exactly one writer do. The other gets 409 with the current copy and merges.
+- **Local first.** The app shows this device's cached copy at once, then reconciles with the cloud.
+  Edits are cached immediately and sent after a 0.8 s pause; other devices' changes are picked up
+  every 15 s while the tab is visible and on focus or reconnect.
+- **Merging, not last-write-wins.** Unsent changes are merged entry by entry: each mark, setting,
+  OD, record day, holiday and extra working day. Only the same entry changed differently on two
+  devices is a conflict.
+- **Offline.** Edits stay pending in IndexedDB and are retried; a failed save never drops them.
 
 The status next to the week title shows **Cloud synced**, **Saving...**, **Sync pending**,
-**Offline** or **Sync error** (tap it to retry; hover or long-press for the reason).
+**Offline** or **Sync error** (tap it to retry). If the session has ended, a banner offers
+**Sign in again**; changes stay on the device meanwhile.
 
 ### Conflicts and recovery
 
 - **Same entry changed on two devices:** the cloud value is used, everything else is merged, and a
-  banner lists what clashed. **Use this device's values** puts this device's values back and
-  saves them; **Keep the cloud copy** dismisses it.
-- **This device has different data from the cloud on its first sync** (for example two phones
-  both used the old local-only app): the cloud copy is shown and nothing is uploaded. The banner
-  offers **Keep the cloud copy** or **Use this device's copy**.
-- Both banners have **Download this device's copy**, which saves this device's version as a JSON
-  file, so nothing is lost whichever you choose. The device's copy also stays in IndexedDB until
-  you choose.
-- If the server ever reports a stored state that does not validate, the app shows **Sync error**
-  and never writes over it.
+  banner lists what clashed. **Use this device's values** puts this device's values back.
+- **This device has different data from the cloud on its first sync:** the cloud copy is shown and
+  nothing is uploaded until you pick **Keep the cloud copy** or **Use this device's copy**.
+- Both banners have **Download this device's copy** (a JSON file).
+- A stored state that does not validate is reported as **Sync error** and never written over.
 
-### First launch after the upgrade (migrating from localStorage)
+### Database structure
 
-1. The app reads the old `skip-planner:v3` (or v2/v1, migrated in memory with the existing
-   migrations). It does not delete anything yet.
-2. It asks the cloud. If there is **no record**, it uploads the local state, reads it back, and
-   only when the copy in the cloud matches exactly does it remove the old localStorage keys.
-3. If the cloud **already has the same state**, the old keys are removed. If it has a **different**
-   state, both are kept and the conflict banner asks which to use (see above).
-4. If the server cannot be reached or is not configured, the old keys stay and the app keeps
-   working from this device's cache; the upload happens on a later launch or retry.
+Both backends store the same two things. The server picks one: `DATABASE=supabase|appwrite`
+forces it; otherwise Supabase if `SUPABASE_URL` and a secret key are set, else Appwrite. Each
+database has its own accounts, so the Render (Supabase) and Vercel (Appwrite) deployments are
+separate apps with separate data.
 
-### Set up Appwrite
+**Supabase** ([`supabase/migrations/0002_multi_user.sql`](supabase/migrations/0002_multi_user.sql)):
 
-1. Create a project at [cloud.appwrite.io](https://cloud.appwrite.io) (the free plan is plenty).
-2. In the project's **Settings**, note the **API endpoint** (for example
-   `https://fra.cloud.appwrite.io/v1`) and the **Project ID**.
-3. **Overview** > **API keys** > **Create API key**. Give it the scopes **databases**, **tables**,
-   **columns**, **indexes** and **rows** (read and write each) and copy the secret. For tighter
-   security you can later make a second key with only `rows.read` and `rows.write` for Vercel;
-   the broader scopes are only needed by the setup script.
-4. Make an access key: a long random string, at least 24 characters (shorter ones are refused).
-   For example:
+| Table | Column | Type | Notes |
+| --- | --- | --- | --- |
+| `users` | `key` | text, primary key | name key, 2 to 24 of `a-z 0-9 -` |
+| | `name` | text | as typed (display) |
+| | `pin_hash` | text | `scrypt$N$salt$hash` |
+| | `failed_attempts` | integer, default 0 | wrong PINs in a row |
+| | `locked_until` | timestamptz, null | set after 5 wrong PINs |
+| | `created_at` | timestamptz | |
+| `planner_versions` | `user_key` | text, references `users(key)` on delete cascade | |
+| | `version` | bigint, ≥ 1 | primary key is `(user_key, version)` |
+| | `state` | text | the `AppState` JSON |
+| | `created_at` | timestamptz | |
 
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-   ```
+Row level security is enabled and forced with no policies, and `anon` / `authenticated` have no
+grants; only `service_role` (the server's secret key) can read or write.
 
-   Keep it somewhere safe, such as a password manager.
-5. Copy `.env.example` to `.env.local` and fill in `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`,
-   `APPWRITE_API_KEY` and `PLANNER_ACCESS_KEY`. `.env.local` is git-ignored.
-6. Create the database, table, columns and index (safe to run again):
+**Appwrite** (database `planner`, made by `npm run setup:appwrite`; no permissions, no row
+security):
+
+| Table | Row id | Columns |
+| --- | --- | --- |
+| `users` | the name key | `name` varchar 24, `pinHash` varchar 200, `failedAttempts` integer, `lockedUntil` varchar 40 (ISO time or null) |
+| `planner_versions` | `{key}-v{version}` | `user` varchar 24, `version` integer, `state` mediumtext; unique index `user_version_unique` on (`user`, `version`) |
+
+Rows of the single-user version (no `user`) are no longer read; delete them whenever you like.
+The setup script removes the old `version_unique` index, which would stop two people both having
+a version 1.
+
+### Set up Supabase and Render
+
+1. **Supabase project** (region Singapore). In **Project Settings > Data API**, keep the Data API
+   on and **turn off** "Automatically expose new tables"; leave automatic RLS off too (the SQL
+   turns RLS on itself).
+2. **SQL Editor > New query**, paste all of
+   [`supabase/migrations/0002_multi_user.sql`](supabase/migrations/0002_multi_user.sql), **Run**.
+   It is safe to run again.
+3. **Project Settings > Data API**: copy the **Project URL** (`SUPABASE_URL`). **Project Settings >
+   API Keys > Secret keys**: create or copy one (`SUPABASE_SECRET_KEY`, starts `sb_secret_`).
+4. **Render > New > Blueprint**, pick this repository. It reads [`render.yaml`](render.yaml): a
+   Node web service in Singapore, build `npm ci && npm run build`, start `npm start`, with
+   `DATABASE=supabase` and a generated `SESSION_SECRET`. Paste `SUPABASE_URL` and
+   `SUPABASE_SECRET_KEY` when asked. (Without the blueprint: **New > Web Service**, same build and
+   start commands, region Singapore, and add the four variables by hand.)
+5. Open the Render URL, choose **New here**, pick a name and PIN, and upload your attendance.
+
+Render's free plan sleeps after 15 minutes without visits; the first visit after that takes
+about a minute while it wakes up. The app keeps working from the device cache meanwhile.
+
+### Set up Appwrite (Vercel)
+
+1. Create a project at [cloud.appwrite.io](https://cloud.appwrite.io). Note the **API endpoint**
+   and **Project ID** (project **Settings**).
+2. **Overview > API keys > Create API key** with **databases**, **tables**, **columns**,
+   **indexes** and **rows** (read and write). The app itself only needs `rows.read` and
+   `rows.write`, so Vercel can use a narrower key.
+3. Copy `.env.example` to `.env.local`, fill in the Appwrite block and `SESSION_SECRET`, then run
+   (safe to run again; it also upgrades a database made for the single-user version):
 
    ```bash
    npm run setup:appwrite
    ```
 
-   It makes database `planner` with table `planner_versions`: an integer column `version`, a
-   mediumtext column `state`, a unique index on `version`, no permissions and no row security.
-   To do it by hand in the console instead, create exactly that.
-7. On Vercel: **Project** > **Settings** > **Environment Variables**, add the same four variables
-   for Production (and Preview if you use it), then redeploy. Never prefix them with
-   `NEXT_PUBLIC_`.
-8. Open the app on each device. It shows **Cloud sync is locked on this device**: paste the access
-   key and press **Unlock sync**. The status turns to **Cloud synced**, and your existing data is
-   uploaded as described above. You can change or forget the key later in **Settings > Cloud
-   access key**.
-
-Without the variables the API answers "not configured", the status shows **Sync error**, and the
-app keeps everything on the device. To lock out a lost device, change `PLANNER_ACCESS_KEY` on
-Vercel, redeploy, and enter the new key on the devices you still use.
-
-You do not need Appwrite Realtime: sync works through the app's API.
+4. On Vercel: **Project > Settings > Environment Variables**: `APPWRITE_ENDPOINT`,
+   `APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY` and `SESSION_SECRET`, then redeploy. Remove the old
+   `PLANNER_ACCESS_KEY`; it is no longer used.
 
 ### Limitations
 
-- **One shared key, no accounts.** Anyone with the access key can read and change the planner, so
-  keep it private. There is no rate limit on wrong guesses; a random key of 32 bytes makes guessing
-  hopeless, which is why short keys are refused. The key sits in each device's localStorage, so
-  anyone using that browser profile can use it.
-- Changes from another device appear within about 15 s while the tab is open, not instantly.
-- Two tabs on the same device share one cache. If one tab is closed within a second of an edit
-  while offline, that edit can be overwritten in the cache by the other tab (it is still sent if
-  the closing tab's last save got out).
-- Appwrite's free plan may pause projects that see no activity for a long time; the app then shows
-  **Sync error** until the project is resumed from the console, and keeps working on the device
-  meanwhile.
-- Each save adds a row (a few KB). History is pruned to the last 200 versions, so storage stays
-  small.
+- A 4 to 6 digit PIN is weak on its own; the lock after 5 wrong tries is what keeps guessing slow.
+  Do not reuse a PIN that protects anything else.
+- Anyone can create an account on the deployment; names are first come, first served.
+- Changes from another device appear within about 15 s, not instantly.
+- Free plans pause or sleep: Appwrite may pause an idle project, Render sleeps after 15 minutes and
+  Supabase pauses a project after a week without activity. The app shows **Sync error** or
+  **Offline** meanwhile and keeps working on the device.
 
 ## Saved state and migrations
 
@@ -338,70 +348,30 @@ every server reply and for the IndexedDB cache. The pre-cloud app saved it in lo
 Anything that fails validation is never used: a bad cache falls back to the cloud copy, a bad
 server reply is reported as **Sync error**.
 
-## Updating the baseline after a new attendance export
+## Updating your record
 
-**In the app (quickest, this device only):**
+Download a newer Daily Attendance report from the portal and upload it in **Settings > Your
+attendance record > Upload a newer file**. It replaces the record: the baseline is rebuilt, the
+days it covers after 10 Nov replace the marks on those classes, and ODs the portal now shows as
+DL stop adding anything. A toast lists the skip budgets that moved, with an Undo.
 
-1. Open **Settings** and scroll to **Portal attendance (ODs not included)**.
-2. Set **Baseline as of** to the last date your export covers.
-3. Type the **Present** and **Held** hours for each course exactly as the portal shows them.
-4. For every OD the portal now shows as DL, tick **Already shows DL on the portal**. Its hours
-   are in the numbers you just typed, so it must not be added again.
-5. Classes on or before the new date are now inside the baseline, so the app ignores any marks
-   on them. You do not need to clear them.
+Without a record, **Settings > Or type the portal totals** still takes present and held hours per
+course with a **Baseline as of** date, as before.
 
-**The current defaults** (`PORTAL_BASELINE`, as of 10 Nov 2026, revision 4) come from the past
-record, not from the portal's per-course totals, which had hours on the wrong courses. Held hours
-total 334: the portal's 313 plus 21 suspended hours. Present hours total 290.
-
-| Course | Present / held | Course | Present / held |
-| --- | --- | --- | --- |
-| Data Comm & Networks | 34 / 37 | Data Structures | 30 / 37 |
-| DCCN Lab | 20 / 22 | Linear Algebra | 35 / 45 |
-| Aptitude | 18 / 20 | OOP Java | 24 / 31 |
-| Web Tech Lab | 24 / 26 | Web Tech | 32 / 37 |
-| Comp Org & Arch | 30 / 33 | OOP Java Lab | 23 / 26 |
-| DS Lab | 20 / 20 | | |
-
-**After a new daily report:** dump it to `src/lib/historyData.ts` (one string of hour codes per
-day), move `BASELINE_AS_OF`, update `PORTAL_BASELINE` to what `historyTotals()` gives, and run
-`npm test` (history.test.ts checks every day against its timetable).
-
-**How a correction reaches devices that already saved the old numbers.** The baseline is saved as
-a full copy inside the state (on each device, in its confirmed copy, and in the cloud row), so
-changing `config.ts` alone would not reach them. Each saved state carries
-`settings.baselineRevision` (missing means 1). `migrateState()` in
-[`src/lib/storage.ts`](src/lib/storage.ts) brings an older state up to `BASELINE_REVISION`: a
-course is replaced only if it still equals the old default exactly, so anything you typed by
-hand is kept. It runs everywhere a state comes in: the old localStorage copies, the IndexedDB
-cache (shown and confirmed copies), and every reply from `/api/planner` before it is compared or
-merged. So two devices migrating on their own end up identical, with no false conflict. It works
-offline and with sync not set up. If the cloud row is still on an older revision, the corrected
-values count as a normal local change and are saved to the cloud once.
-
-**In the code (the new defaults for every device):**
-
-1. Edit `PORTAL_BASELINE` and `BASELINE_AS_OF` in [`src/lib/config.ts`](src/lib/config.ts). Remove
-   an OD from `ODS` once the portal counts it for good, or add new ones.
-2. If devices or the cloud already hold the old numbers, raise `BASELINE_REVISION` and add a step to
-   `BASELINE_CORRECTIONS` listing each changed course as `[old default, new default]` (or to
-   `EXTRA_DAY_ADDITIONS` for a new working day). Devices then pick it up on their next load.
-3. `npm test` will now fail on the fixtures in `src/lib/plan.test.ts`, because they are written
-   for the current baseline and these ten ODs. Update or remove those expectations.
-4. Commit and push. Vercel redeploys on its own.
-
-A swapped day in the future needs no code: add an extra working day on that weekday in
-**Settings > Extra working days**, following the timetable it actually ran. It overrides that
-day's normal timetable.
-
-Holidays work the same way: add them in **Settings > Holidays**, or put them in
-`DEFAULT_HOLIDAYS` in `config.ts`.
+**For maintainers.** Saved states carry `settings.baselineRevision`; `migrateState()` in
+[`src/lib/storage.ts`](src/lib/storage.ts) brings an older state up to `BASELINE_REVISION` (6)
+wherever a state comes in (the cache, every server reply). Revisions 2 to 4 corrected the
+single-user baseline, 5 brought in marks from the record, and 6 is accounts: the built-in record
+(`historyData.ts`) and the two old ODs are attached to a planner that predates them. A swapped day
+in the future needs no code: add an extra working day in **Settings > Extra working days**.
+Holidays: **Settings > Holidays**, or `DEFAULT_HOLIDAYS` in `config.ts`.
 
 ## Deploy on Vercel
 
-The app is a standard Next.js project. Vercel detects the framework. For cloud sync it needs the
-four environment variables from [Set up Appwrite](#set-up-appwrite); without them it still builds
-and runs, keeping data on each device.
+The app is a standard Next.js project. Vercel detects the framework. For accounts and sync it
+needs the variables from [Set up Appwrite](#set-up-appwrite-vercel); without them it still builds
+and runs, offering "Use on this device". For Render and Supabase see
+[Set up Supabase and Render](#set-up-supabase-and-render).
 
 ### With GitHub (recommended)
 
@@ -446,12 +416,12 @@ Open the deployed URL on the phone, then:
 - **Android (Chrome):** menu > **Add to Home screen** (or **Install app**).
 - **iPhone (Safari):** Share > **Add to Home Screen**.
 
-With Appwrite set up, the phone and your laptop show the same planner.
+Sign in with the same name and PIN on the phone and your laptop and they show the same planner.
 
 ## Project layout
 
 ```
-src/lib/config.ts     window, periods, timetable, courses, portal baseline, ODs, default settings
+src/lib/config.ts     window, periods, timetable, courses, default settings
 src/lib/plan.ts       rules engine: computePlan, diffPlans, diffBudgets
 src/lib/plan.test.ts  engine tests, including the fixture numbers
 src/lib/dates.ts      YYYY-MM-DD helpers (no timezone traps)
@@ -459,11 +429,15 @@ src/lib/storage.ts    validation, legacy localStorage read, v1/v2 to v3 migratio
 src/lib/history.ts    past record: old timetable, swap days, totals (historyData.ts holds the report)
 src/lib/sync.ts       sync engine: reconcile (syncState), push, retry, conflicts
 src/lib/merge.ts      three-way merge of two states, entry by entry
+src/lib/recordImport.ts  reads the portal's Daily Attendance .xlsx in the browser
+src/lib/account.ts    client for /api/auth (whoAmI, signIn, signUp, signOut)
 src/lib/remote.ts     client for /api/planner (loadRemoteState, saveRemoteState)
-src/lib/localCache.ts IndexedDB cache (loadLocalCache, saveLocalCache)
-src/lib/server/       API request handling, versioned store, Appwrite repository (server only)
-src/app/api/planner/  the GET / PUT route
-scripts/setup-appwrite.mjs   creates the Appwrite database and table (npm run setup:appwrite)
+src/lib/localCache.ts IndexedDB cache, one per person on the device
+src/lib/server/       auth (PIN hashing, sessions), versioned store, Supabase and Appwrite repositories
+src/app/api/          auth routes and the planner GET / PUT route
+supabase/migrations/  the Supabase tables (run once in the SQL editor)
+scripts/setup-appwrite.mjs   creates the Appwrite database and tables (npm run setup:appwrite)
+render.yaml           Render blueprint (Singapore, Supabase)
 src/lib/view.ts       labels and text shared by the views
 src/components/       Planner, DesktopGrid, MobileDays, SessionDialog, SettingsDrawer, ...
 src/app/              layout (fonts, metadata), page, manifest
