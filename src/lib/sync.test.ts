@@ -550,3 +550,29 @@ describe("swap-week baseline correction", () => {
     expect(timers).toEqual([]);
   });
 });
+
+describe("first load on a device with nothing saved", () => {
+  it("is not ready until the cloud copy is in, then shows it, never a blank planner", async () => {
+    const server = fakeServer();
+    const saved = mark(blank(), "2026-11-12@1", "attended");
+    server.repo.record = { state: saved, version: 3, updatedAt: "t" };
+    const { engine } = device(server);
+    const seen: boolean[] = [];
+    engine.subscribe((s) => seen.push(s.ready && Object.keys(s.state.marks).length === 0));
+
+    await engine.start();
+
+    expect(seen).not.toContain(true); // never ready with the empty planner
+    expect(engine.getSnapshot()).toMatchObject({ ready: true, status: "synced" });
+    expect(engine.getSnapshot().state).toEqual(saved);
+  });
+
+  it("starts blank when the cloud cannot be reached, and says so", async () => {
+    const server = fakeServer();
+    server.online = false;
+    const { engine } = device(server);
+    await engine.start();
+    expect(engine.getSnapshot()).toMatchObject({ ready: true, status: "offline" });
+    expect(engine.getSnapshot().state).toEqual(blank());
+  });
+});

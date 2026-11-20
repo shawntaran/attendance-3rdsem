@@ -429,10 +429,13 @@ export function Planner({ account, preAccounts, onSignOut, onSignInAgain }: Prop
         )}
       </div>
 
-      {mode === "record" ? (
+      {!ready ? (
+        <div className="mt-4 flex h-96 flex-col items-center justify-center gap-1 rounded-xl bg-muted px-6 text-center" role="status">
+          <p className="text-sm font-semibold">Loading your planner…</p>
+          <p className="text-xs text-subtle">The first load after a while can take up to a minute while the server wakes up.</p>
+        </div>
+      ) : mode === "record" ? (
         <RecordView isDesktop={isDesktop} settings={state.settings} onApply={(record) => handleRecord(record)} />
-      ) : !ready ? (
-        <div className="mt-4 h-96 rounded-xl bg-muted" role="status" aria-label="Loading your plan" />
       ) : (
         <>
           <div

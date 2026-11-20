@@ -307,6 +307,17 @@ export class SyncEngine {
           ? newRecord(migrateState(legacy.state), "legacy", legacy.key)
           : newRecord(this.fresh(), "default");
         await this.persist();
+        if (!legacy) {
+          // Nothing on this device yet (a new phone, or a fresh sign-in): the
+          // planner most likely lives in the cloud. Wait for it instead of
+          // showing a blank planner that fills in later; if the cloud cannot
+          // be reached, fall through and start blank.
+          await this.doSync();
+          if (this.disposed) return;
+          this.ready = true;
+          this.emit(); // a failed load already scheduled its retry
+          return;
+        }
       }
       this.ready = true;
       this.emit();

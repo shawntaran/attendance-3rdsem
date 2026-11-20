@@ -30,7 +30,8 @@ export interface RemoteApi {
 }
 
 const ENDPOINT = "/api/planner";
-const TIMEOUT_MS = 15_000;
+// Render's free plan can take about 50 s to wake a sleeping server.
+const TIMEOUT_MS = 60_000;
 
 /** Read a { state, version, updatedAt } payload. null state + version 0 = no record yet. */
 function readPayload(body: unknown): RemoteRecord | null | "invalid" {

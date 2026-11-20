@@ -73,7 +73,12 @@ export function AuthGate() {
 
   switch (gate.type) {
     case "checking":
-      return <div className="mx-auto mt-16 h-64 max-w-md rounded-xl bg-muted" role="status" aria-label="Loading" />;
+      return (
+        <div className="mx-auto mt-16 flex h-64 max-w-md flex-col items-center justify-center gap-1 rounded-xl bg-muted px-6 text-center" role="status">
+          <p className="text-sm font-semibold">Connecting…</p>
+          <p className="text-xs text-subtle">If the app has not been used for a while, the server takes up to a minute to wake up.</p>
+        </div>
+      );
     case "signIn":
       return (
         <SignIn

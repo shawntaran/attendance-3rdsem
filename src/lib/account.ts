@@ -44,7 +44,7 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
     ...init,
     cache: "no-store",
     credentials: "same-origin",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(60_000), // a sleeping Render server takes ~50 s to wake
     headers: { "Content-Type": "application/json" },
   });
 }
