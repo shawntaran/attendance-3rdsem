@@ -1,6 +1,6 @@
 import { createSession, signIn } from "@/lib/server/auth";
 import { userRepo } from "@/lib/server/backend";
-import { isResult, MAX_AUTH_BODY_BYTES, notConfigured, readJson, respond } from "@/lib/server/routeUtil";
+import { databaseError, isResult, MAX_AUTH_BODY_BYTES, notConfigured, readJson, respond } from "@/lib/server/routeUtil";
 import { sessionSecret, setSessionCookie } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,6 @@ export async function POST(request: Request): Promise<Response> {
     return respond(result);
   } catch (err) {
     console.error("sign-in failed", err);
-    return respond({ status: 502, body: { error: "database_error" } });
+    return respond(databaseError(err));
   }
 }

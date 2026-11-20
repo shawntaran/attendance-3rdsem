@@ -21,6 +21,25 @@ export function notConfigured(): ApiResult | null {
 
 export const MAX_AUTH_BODY_BYTES = 2_000;
 
+/**
+ * A database call failed. The reply names the database's own error code and
+ * message (e.g. "Invalid API key", "permission denied for table users") so a
+ * setup mistake can be read off the screen; these never contain keys or data.
+ */
+export function databaseError(err: unknown): ApiResult {
+  const e = (typeof err === "object" && err !== null ? err : {}) as { code?: unknown; message?: unknown; cause?: unknown };
+  const code = typeof e.code === "string" || typeof e.code === "number" ? String(e.code) : "";
+  let message = typeof e.message === "string" ? e.message : String(err);
+  if (/fetch failed/i.test(message) && e.cause && typeof e.cause === "object" && "code" in e.cause) {
+    message += ` (${String((e.cause as { code: unknown }).code)})`; // e.g. ENOTFOUND: wrong SUPABASE_URL
+  }
+  message = message.replace(/\s+/g, " ").slice(0, 200);
+  return {
+    status: 502,
+    body: { error: "database_error", message: `Database error${code ? ` ${code}` : ""}: ${message}` },
+  };
+}
+
 /** Parse a small JSON body, or an error result. */
 export async function readJson(request: Request, maxBytes: number): Promise<unknown | ApiResult> {
   const text = await request.text();
