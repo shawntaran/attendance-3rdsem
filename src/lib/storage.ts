@@ -6,6 +6,7 @@
 // working days. An older state is migrated once on load.
 
 import {
+  BASELINE_AS_OF,
   BASELINE_CORRECTIONS,
   BASELINE_REVISION,
   EXTRA_DAY_ADDITIONS,
@@ -24,6 +25,7 @@ import {
   type TimetableWeekday,
 } from "./config";
 import { isValidDate, weekdayIndex } from "./dates";
+import { HISTORY, historyMark } from "./history";
 import type { Marks } from "./plan";
 
 export const STORAGE_KEY = "skip-planner:v3";
@@ -37,8 +39,25 @@ export interface AppState {
   marks: Marks;
 }
 
+/**
+ * Marks for the classes in the plan window that the past record already
+ * covers (after BASELINE_AS_OF): attended or skipped, as the portal shows them.
+ */
+export function recordMarks(): Marks {
+  const marks: Marks = {};
+  for (const day of HISTORY) {
+    if (day.date <= BASELINE_AS_OF) continue;
+    for (const cls of day.classes) {
+      const mark = historyMark(cls);
+      if (mark) marks[`${day.date}@${cls.startPeriod}`] = mark;
+    }
+  }
+  return marks;
+}
+
+/** A fresh state starts from the record, like an older state that was migrated. */
 export function defaultState(): AppState {
-  return { settings: defaultSettings(), marks: {} };
+  return { settings: defaultSettings(), marks: recordMarks() };
 }
 
 const THEMES: Theme[] = ["system", "light", "dark"];
@@ -165,11 +184,15 @@ function parseSharedSettings(v: Record<string, unknown>): SharedSettings {
  * hand is left alone. Pure and idempotent: a state already at the current
  * revision comes back unchanged (the same object).
  */
+/** The revision at which marks for 11-19 Nov are imported from the record. */
+export const MARKS_FROM_RECORD_REVISION = 5;
+
 export function migrateState(state: AppState): AppState {
   const from = state.settings.baselineRevision ?? 1;
   if (from >= BASELINE_REVISION) return state;
   const baseline = { ...state.settings.baseline };
   const extraWorkingDays = [...state.settings.extraWorkingDays];
+  const marks: Marks = { ...state.marks };
   for (let rev = from + 1; rev <= BASELINE_REVISION; rev++) {
     for (const [code, step] of Object.entries(BASELINE_CORRECTIONS[rev] ?? {})) {
       if (!step) continue;
@@ -182,10 +205,18 @@ export function migrateState(state: AppState): AppState {
     for (const day of EXTRA_DAY_ADDITIONS[rev] ?? []) {
       if (!extraWorkingDays.some((x) => x.date === day.date)) extraWorkingDays.push({ ...day });
     }
+    if (rev === MARKS_FROM_RECORD_REVISION) {
+      // Classes in the plan window that the record already covers become marks,
+      // unless you marked them yourself.
+      for (const [id, mark] of Object.entries(recordMarks())) {
+        if (marks[id] === undefined) marks[id] = mark;
+      }
+    }
   }
   extraWorkingDays.sort((a, b) => a.date.localeCompare(b.date));
   return {
     ...state,
+    marks,
     settings: { ...state.settings, baseline, extraWorkingDays, baselineRevision: BASELINE_REVISION },
   };
 }

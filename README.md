@@ -102,13 +102,15 @@ which would be read as UTC and can land on the wrong day.
 
 The app keeps two things apart:
 
-- **Portal baseline.** Present and held hours per course exactly as the Linways portal shows
-  them on `baselineAsOf` (DL counted as present, SUS excluded). An OD the portal has not approved
-  yet is still an absence in these numbers. Defaults: `PORTAL_BASELINE` in
-  [`src/lib/config.ts`](src/lib/config.ts), as of 2026-11-10.
-- **ODs.** The on-duty leaves in `ODS`. There are two kinds:
-  - **Baseline ODs** (10, 40 hours in total), from before 10 Nov. Each lists, per course, the
-    absent hours in the baseline that it would turn into present hours.
+- **Baseline.** Present and held hours per course up to `baselineAsOf` (10 Nov), worked out class
+  by class from the past record (see [Past record](#past-record)). DL counts as present;
+  suspended hours count as held but not attended. An OD still pending is an absence in these
+  numbers. Defaults: `PORTAL_BASELINE` in [`src/lib/config.ts`](src/lib/config.ts).
+- **ODs.** The on-duty leaves in `ODS` that are not yet DL. There are two kinds:
+  - **Baseline ODs**, before 10 Nov. Each lists, per course, the absent hours in the baseline that
+    it would turn into present hours. Only one is left: **29 Sep, French event** (DCCN Lab +1);
+    both lab hours that day are still absent in the record. The other ten (12 Aug, 4 Sep, 15, 16,
+    17 and 24 Sep, 27, 29 and 30 Oct) are DLs in the record now, so they were removed.
   - **Plan ODs**, with `dates` inside the plan window. While switched on, every class on those days
     counts as present (attended and held) and shows as **On duty**, whatever is marked there;
     switching the OD off brings the marks back. Their hours come from the timetable. Currently one:
@@ -140,6 +142,31 @@ the date, the reason, the hours per course, a switch, and the "Already shows DL 
 box. "Count all" and "Count none" flip every switch. Each change shows a toast such as
 "Linear Algebra skip budget 5 to 4, Web Tech Lab 2 to 0" with an Undo, and the allowance table
 shows "includes +4 OD hrs" under a course's Now % when OD hours are counted in it.
+
+## Past record
+
+**Plan / Past record** next to the week tabs switches to every past week laid out as the timetable
+it ran, with each class marked **Present**, **Absent**, **OD (DL)** or **Suspended**, holidays named,
+and a table of totals per course. It is read-only.
+
+The data is the portal's Daily Attendance report, 5 Aug to 19 Nov 2026
+([`src/lib/historyData.ts`](src/lib/historyData.ts)): one status per hour, with no course names.
+[`src/lib/history.ts`](src/lib/history.ts) places each hour on its course:
+
+- **Until 16 Sep:** the old timetable (`OLD_TIMETABLE`). It differs from the current one on
+  Monday (OOP Java hour 1, Linear Algebra hour 2), Thursday (Comp Org in hour 6) and Friday
+  (Web Tech hour 1, Linear Algebra hour 7, no hour 8).
+- **From 17 Sep:** the current timetable.
+- **Wed 9 Sep** ran Friday's timetable, as the portal's week-wise report for 7 to 13 Sep shows;
+  Fri 11 Sep was a normal Friday in that report.
+
+Every class day fits its timetable hour for hour; the only gap is hour 7 on Fri 4 Sep, which was
+not recorded (treated as not held). Sat 31 Oct was a teaching day by circular PU/2026/234, but the
+report has no entry for it, so it is not counted. `COUNT_SUSPENDED_AS_ABSENT` in `history.ts`
+counts suspended hours as held but not attended; set it to `false` to match the portal.
+
+Classes from 11 to 19 Nov are inside the plan window, so they come in as marks (P attended, A
+skipped) for any class you had not marked yourself (revision 5).
 
 ## Plan window and extra working days
 
@@ -323,10 +350,22 @@ server reply is reported as **Sync error**.
 5. Classes on or before the new date are now inside the baseline, so the app ignores any marks
    on them. You do not need to clear them.
 
-**The current defaults** (`PORTAL_BASELINE`, as of 10 Nov 2026, baseline revision 2) include the
-swap-week correction: in the week of 7 to 11 Sep 2026, Wed 9 Sep ran Friday's timetable and Fri
-11 Sep ran Wednesday's. Placing those hours correctly gives Data Structures 26/34, Web Tech 28/35
-and Linear Algebra 25/37 (they were 25/33, 27/34 and 26/38). Held hours total 313.
+**The current defaults** (`PORTAL_BASELINE`, as of 10 Nov 2026, revision 4) come from the past
+record, not from the portal's per-course totals, which had hours on the wrong courses. Held hours
+total 334: the portal's 313 plus 21 suspended hours. Present hours total 290.
+
+| Course | Present / held | Course | Present / held |
+| --- | --- | --- | --- |
+| Data Comm & Networks | 34 / 37 | Data Structures | 30 / 37 |
+| DCCN Lab | 20 / 22 | Linear Algebra | 35 / 45 |
+| Aptitude | 18 / 20 | OOP Java | 24 / 31 |
+| Web Tech Lab | 24 / 26 | Web Tech | 32 / 37 |
+| Comp Org & Arch | 30 / 33 | OOP Java Lab | 23 / 26 |
+| DS Lab | 20 / 20 | | |
+
+**After a new daily report:** dump it to `src/lib/historyData.ts` (one string of hour codes per
+day), move `BASELINE_AS_OF`, update `PORTAL_BASELINE` to what `historyTotals()` gives, and run
+`npm test` (history.test.ts checks every day against its timetable).
 
 **How a correction reaches devices that already saved the old numbers.** The baseline is saved as
 a full copy inside the state (on each device, in its confirmed copy, and in the cloud row), so
@@ -417,6 +456,7 @@ src/lib/plan.ts       rules engine: computePlan, diffPlans, diffBudgets
 src/lib/plan.test.ts  engine tests, including the fixture numbers
 src/lib/dates.ts      YYYY-MM-DD helpers (no timezone traps)
 src/lib/storage.ts    validation, legacy localStorage read, v1/v2 to v3 migration
+src/lib/history.ts    past record: old timetable, swap days, totals (historyData.ts holds the report)
 src/lib/sync.ts       sync engine: reconcile (syncState), push, retry, conflicts
 src/lib/merge.ts      three-way merge of two states, entry by entry
 src/lib/remote.ts     client for /api/planner (loadRemoteState, saveRemoteState)

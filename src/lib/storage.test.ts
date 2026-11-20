@@ -51,7 +51,7 @@ function v2State() {
   settings.cushionHours = 2;
   settings.holidays = ["2026-11-20"];
   settings.baseline = { ...settings.baseline, MAT2303: [27, 39] };
-  settings.odState = { ...settings.odState, "od-2026-10-30": { on: false, inPortal: true } };
+  settings.odState = { ...settings.odState, "od-2026-09-29": { on: false, inPortal: true } };
   return { settings, marks: { "2026-11-12@1": "skipped" } };
 }
 
@@ -60,7 +60,7 @@ describe("parseState (v3)", () => {
     const state = defaultState();
     state.settings.theme = "dark";
     state.settings.holidays = ["2026-11-20"];
-    state.settings.odState["od-2026-10-30"] = { on: false, inPortal: true };
+    state.settings.odState["od-2026-09-29"] = { on: false, inPortal: true };
     state.settings.baseline.MAT2303 = [27, 38];
     state.marks["2026-11-12@1"] = "skipped";
     state.settings.windowEnd = "2026-12-11";
@@ -83,7 +83,7 @@ describe("parseState (v3)", () => {
       "bad OD toggle",
       JSON.stringify({
         ...d,
-        settings: { ...d.settings, odState: { ...d.settings.odState, "od-2026-08-12": { on: "yes", inPortal: false } } },
+        settings: { ...d.settings, odState: { ...d.settings.odState, "od-2026-09-29": { on: "yes", inPortal: false } } },
       }),
     ],
     ["a v1 state under the v3 key", JSON.stringify(v1State("odsGranted"))],
@@ -239,11 +239,11 @@ describe("ODs added after a state was saved", () => {
   it("a saved state without the 17-18 Nov OD keeps everything and gets the OD switched on", () => {
     const state = defaultState();
     state.marks["2026-11-12@1"] = "skipped";
-    state.settings.odState["od-2026-10-30"] = { on: false, inPortal: true };
+    state.settings.odState["od-2026-09-29"] = { on: false, inPortal: true };
     const { ["od-2026-11-17"]: _gone, ...older } = state.settings.odState;
     const parsed = parseState(JSON.stringify({ ...state, settings: { ...state.settings, odState: older } }));
     expect(parsed.marks).toEqual(state.marks);
-    expect(parsed.settings.odState["od-2026-10-30"]).toEqual({ on: false, inPortal: true });
+    expect(parsed.settings.odState["od-2026-09-29"]).toEqual({ on: false, inPortal: true });
     expect(parsed.settings.odState["od-2026-11-17"]).toEqual({ on: true, inPortal: false });
   });
 });

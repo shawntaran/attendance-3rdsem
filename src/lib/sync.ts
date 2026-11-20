@@ -59,10 +59,15 @@ export function migrateRecord(rec: CacheRecord): CacheRecord {
  * the confirmed base is set to the raw row, which makes the migrated values a
  * normal pending change: they are pushed once and the row is upgraded.
  */
-export function syncWithMigration(rec: CacheRecord, raw: RemoteRecord | null, now: string): SyncDecision {
-  if (raw === null) return syncState(rec, null, now);
+export function syncWithMigration(
+  rec: CacheRecord,
+  raw: RemoteRecord | null,
+  now: string,
+  fresh: () => AppState = defaultState,
+): SyncDecision {
+  if (raw === null) return syncState(rec, null, now, fresh);
   const migrated: RemoteRecord = { ...raw, state: migrateState(raw.state) };
-  const decision = syncState(rec, migrated, now);
+  const decision = syncState(rec, migrated, now, fresh);
   if (migrated.state === raw.state || decision.record.baseVersion !== raw.version) return decision;
   const record: CacheRecord = {
     ...decision.record,
@@ -101,7 +106,13 @@ function addConflict(existing: SyncConflict | null, next: SyncConflict): SyncCon
  * Reconcile the local record with what the server has. Pure: decides the new
  * record and whether to push, without doing any I/O.
  */
-export function syncState(rec: CacheRecord, remote: RemoteRecord | null, now: string): SyncDecision {
+export function syncState(
+  rec: CacheRecord,
+  remote: RemoteRecord | null,
+  now: string,
+  /** What a fresh device starts from (the merge base for its offline edits). */
+  fresh: () => AppState = defaultState,
+): SyncDecision {
   const same = { changedByRemote: false, legacyVerified: false };
 
   // No record on the server yet (first launch anywhere, or the row was deleted):
@@ -120,7 +131,7 @@ export function syncState(rec: CacheRecord, remote: RemoteRecord | null, now: st
     }
     if (rec.origin === "default") {
       // A fresh device edited offline: its changes are on top of the defaults.
-      return mergeOnto(rec, defaultState(), remote, now);
+      return mergeOnto(rec, fresh(), remote, now);
     }
     // Existing local data (legacy localStorage or an unsynced cache) that differs
     // from the cloud. Show the cloud, keep this device's copy for the person to choose.
@@ -143,7 +154,7 @@ export function syncState(rec: CacheRecord, remote: RemoteRecord | null, now: st
 
   if (remote.version > rec.baseVersion) {
     if (!rec.pending) return { record: takeRemote(rec, remote), push: false, changedByRemote: true, legacyVerified: false };
-    return mergeOnto(rec, rec.base ?? defaultState(), remote, now);
+    return mergeOnto(rec, rec.base ?? fresh(), remote, now);
   }
 
   // The server is behind what this device already saw: it was reset or restored.
@@ -224,6 +235,8 @@ export interface SyncDeps {
   clearTimer?: (handle: unknown) => void;
   /** Delay before local edits are sent. */
   debounceMs?: number;
+  /** The state a device with no saved data starts from (default: defaultState). */
+  initialState?: () => AppState;
 }
 
 const MAX_PUSH_ATTEMPTS = 5;
@@ -250,12 +263,14 @@ export class SyncEngine {
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (handle: unknown) => void;
   private readonly debounceMs: number;
+  private readonly fresh: () => AppState;
 
   constructor(private readonly deps: SyncDeps) {
     this.now = deps.now ?? (() => new Date().toISOString());
     this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
     this.debounceMs = deps.debounceMs ?? 800;
+    this.fresh = deps.initialState ?? defaultState;
     this.snapshot = this.buildSnapshot();
   }
 
@@ -282,13 +297,15 @@ export class SyncEngine {
       if (cached) {
         // Apply any baseline correction at once, so the right numbers show
         // and are cached even with sync locked, unconfigured or offline.
+        // The cache loader may already have migrated on read, so save
+        // unconditionally: the stored copy then matches what is shown.
         this.rec = migrateRecord(cached);
-        if (!statesEqual(this.rec.state, cached.state) || this.rec.base !== cached.base) await this.persist();
+        await this.persist();
       } else {
         const legacy = this.deps.legacy.read();
         this.rec = legacy
           ? newRecord(migrateState(legacy.state), "legacy", legacy.key)
-          : newRecord(defaultState(), "default");
+          : newRecord(this.fresh(), "default");
         await this.persist();
       }
       this.ready = true;
@@ -417,7 +434,7 @@ export class SyncEngine {
       return;
     }
     this.succeeded();
-    await this.apply(syncWithMigration(this.rec, result.record, this.now()));
+    await this.apply(syncWithMigration(this.rec, result.record, this.now(), this.fresh));
   }
 
   private async apply(decision: SyncDecision): Promise<void> {
@@ -445,7 +462,7 @@ export class SyncEngine {
 
       if (result.type === "conflict") {
         // Someone else saved first: merge with what they saved, then try again.
-        const decision = syncWithMigration(this.rec, result.current, this.now());
+        const decision = syncWithMigration(this.rec, result.current, this.now(), this.fresh);
         this.rec = decision.record;
         if (decision.changedByRemote) this.remoteRevision++;
         if (decision.legacyVerified) this.clearLegacy();

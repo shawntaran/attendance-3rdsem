@@ -11,6 +11,7 @@ import {
   loadFrom,
   migrateState,
   readLegacy,
+  recordMarks,
   tryValidateState,
   validateState,
   type AppState,
@@ -25,7 +26,8 @@ function oldState(): AppState {
   return s;
 }
 
-const NEW = { CSE2253: [26, 34], CSE2258: [28, 35], MAT2303: [25, 37] };
+// The swap-week courses after every revision step: the record's numbers (revision 4).
+const NEW = { CSE2253: [30, 37], CSE2258: [32, 37], MAT2303: [35, 45] };
 
 function store(data: Record<string, string>) {
   return {
@@ -37,10 +39,10 @@ function store(data: Record<string, string>) {
 }
 
 describe("defaults", () => {
-  it("held hours total 313 and new states start at the current revision", () => {
-    expect(COURSE_CODES.reduce((sum, c) => sum + PORTAL_BASELINE[c][1], 0)).toBe(313);
-    expect(BASELINE_REVISION).toBe(3);
-    expect(defaultState().settings.baselineRevision).toBe(3);
+  it("held hours total 334 (313 plus 21 suspended) and new states start at the current revision", () => {
+    expect(COURSE_CODES.reduce((sum, c) => sum + PORTAL_BASELINE[c][1], 0)).toBe(334);
+    expect(BASELINE_REVISION).toBe(5);
+    expect(defaultState().settings.baselineRevision).toBe(5);
     expect(migrateState(defaultState())).toEqual(defaultState());
   });
 });
@@ -49,7 +51,7 @@ describe("migrateState", () => {
   it("replaces untouched old defaults with the corrected numbers", () => {
     const m = migrateState(oldState());
     expect(m.settings.baseline).toMatchObject(NEW);
-    expect(m.settings.baselineRevision).toBe(3);
+    expect(m.settings.baselineRevision).toBe(5);
     // The other eight courses are unchanged.
     for (const c of COURSE_CODES.filter((c) => !(c in NEW))) expect(m.settings.baseline[c]).toEqual(PORTAL_BASELINE[c]);
   });
@@ -59,7 +61,7 @@ describe("migrateState", () => {
     s.settings.baseline.MAT2303 = [27, 39];
     const m = migrateState(s);
     expect(m.settings.baseline.MAT2303).toEqual([27, 39]);
-    expect(m.settings.baseline.CSE2253).toEqual([26, 34]);
+    expect(m.settings.baseline.CSE2253).toEqual([30, 37]);
   });
 
   it("is idempotent", () => {
@@ -87,7 +89,7 @@ describe("migrateState", () => {
 describe("validators", () => {
   it("accept states with and without baselineRevision, and reject a bad one", () => {
     expect(validateState(oldState()).settings.baselineRevision).toBeUndefined();
-    expect(validateState(defaultState()).settings.baselineRevision).toBe(3);
+    expect(validateState(defaultState()).settings.baselineRevision).toBe(5);
     const bad = defaultState() as unknown as { settings: Record<string, unknown> };
     bad.settings.baselineRevision = "2";
     expect(tryValidateState(bad)).toBeNull();
@@ -128,7 +130,7 @@ describe("legacy chain", () => {
     });
     const state = readLegacy(store({ [STORAGE_KEY_V1]: raw }))!.state;
     expect(state.settings.baseline).toMatchObject(NEW);
-    expect(state.settings.baselineRevision).toBe(3);
+    expect(state.settings.baselineRevision).toBe(5);
   });
 });
 
@@ -156,7 +158,8 @@ describe("cache and merge", () => {
     const { merged, conflicts } = mergeStates(migrateState(oldState()), local, remote);
     expect(conflicts).toEqual([]);
     expect(merged.settings.baseline).toMatchObject(NEW);
-    expect(merged.marks).toEqual({ "2026-11-12@1": "skipped", "2026-11-13@1": "attended" });
+    // The record marks from both sides, with each side's own edit on top.
+    expect(merged.marks).toEqual({ ...recordMarks(), "2026-11-12@1": "skipped", "2026-11-13@1": "attended" });
   });
 
   it("an old-revision cloud row is compared migrated, then queued once for upgrade", () => {
@@ -187,7 +190,7 @@ describe("revision 3: Sat 21 Nov working day", () => {
     const m = migrateState(s);
     expect(m.settings.extraWorkingDays.map((x) => x.date)).toEqual(["2026-11-21", "2026-12-05"]);
     expect(m.settings.extraWorkingDays[0]).toEqual(SAT);
-    expect(m.settings.baselineRevision).toBe(3);
+    expect(m.settings.baselineRevision).toBe(5);
   });
 
   it("keeps an entry for 21 Nov set by hand", () => {
@@ -213,5 +216,26 @@ describe("revision 3: Sat 21 Nov working day", () => {
     const a = migrateState(oldState());
     const b = migrateState(oldState());
     expect(statesEqual(a, b)).toBe(true);
+  });
+});
+
+describe("revision 5: 11-19 Nov marks from the record", () => {
+  it("a fresh state starts with the record's marks for the plan window", () => {
+    const marks = defaultState().marks;
+    expect(Object.keys(marks)).toHaveLength(33);
+    expect(marks["2026-11-13@1"]).toBe("skipped"); // Fri 13 Nov Comp Org: A
+    expect(marks["2026-11-16@3"]).toBe("attended"); // Mon 16 Nov DS Lab: P P
+    expect(marks["2026-11-19@3"]).toBe("skipped"); // Thu 19 Nov DCCN: A
+    expect(Object.keys(marks).every((id) => id > "2026-11-10")).toBe(true);
+  });
+
+  it("an older state gets the record marks, but keeps the ones you set yourself", () => {
+    const s = defaultState();
+    s.settings.baselineRevision = 4;
+    s.marks = { "2026-11-13@1": "attended" }; // you say you went
+    const m = migrateState(s);
+    expect(m.marks["2026-11-13@1"]).toBe("attended");
+    expect(m.marks["2026-11-19@3"]).toBe("skipped");
+    expect(Object.keys(m.marks)).toHaveLength(33);
   });
 });

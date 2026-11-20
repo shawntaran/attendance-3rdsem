@@ -21,6 +21,7 @@ import { getAccessKey } from "@/lib/accessKey";
 import { AccessKeyBanner } from "./AccessKeyBanner";
 import { ColorKey } from "./ColorKey";
 import { ConflictBanner } from "./ConflictBanner";
+import { RecordView } from "./RecordView";
 import { CourseTable } from "./CourseTable";
 import { DesktopGrid } from "./DesktopGrid";
 import { Glance } from "./Glance";
@@ -85,6 +86,8 @@ export function Planner() {
   const [pulse, setPulse] = useState<{ key: number; ids: Set<string> }>({ key: 0, ids: new Set() });
   // Days switched off to preview them as holidays. This device only, not synced.
   const [offDays, setOffDays] = useState<string[]>([]);
+  // "plan": the weeks ahead; "record": every past week as it happened.
+  const [mode, setMode] = useState<"plan" | "record">("plan");
 
   const undoState = useRef<AppState | null>(null);
   const counter = useRef(0);
@@ -290,8 +293,12 @@ export function Planner() {
     <div className="mx-auto max-w-[1240px] px-3 pt-4 pb-28 desk:px-8 desk:pt-8">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-3xl leading-none font-bold desk:text-5xl">{week.label}</h1>
-          <p className="mt-1.5 text-sm text-subtle desk:text-base">{weekRangeLabel(week)}</p>
+          <h1 className="font-display text-3xl leading-none font-bold desk:text-5xl">
+            {mode === "record" ? "Past record" : week.label}
+          </h1>
+          <p className="mt-1.5 text-sm text-subtle desk:text-base">
+            {mode === "record" ? "Every class so far: present, absent, OD or suspended" : weekRangeLabel(week)}
+          </p>
           <div className="mt-1 -ml-2">
             <SyncIndicator status={sync.status} message={sync.message} onRetry={() => void sync.retry()} />
           </div>
@@ -368,11 +375,33 @@ export function Planner() {
         />
       )}
 
-      <div className="sticky top-0 z-20 -mx-3 mt-3 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:p-0">
-        <WeekTabs weeks={weeks} selected={safeIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
+      <div className="sticky top-0 z-20 -mx-3 mt-3 flex flex-col gap-2 bg-page px-3 py-2 desk:static desk:mx-0 desk:mt-5 desk:flex-row desk:items-center desk:gap-4 desk:p-0">
+        <div role="radiogroup" aria-label="View" className="inline-flex shrink-0 rounded-lg border-[1.5px] border-line bg-surface p-0.5">
+          {(["plan", "record"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => setMode(m)}
+              className={`min-h-10 flex-1 rounded-md px-3 text-sm font-semibold whitespace-nowrap ${
+                mode === m ? "bg-teal text-white" : "text-ink hover:bg-empty"
+              }`}
+            >
+              {m === "plan" ? "Plan" : "Past record"}
+            </button>
+          ))}
+        </div>
+        {mode === "plan" && (
+          <div className="min-w-0 flex-1">
+            <WeekTabs weeks={weeks} selected={safeIndex} greenHoursByWeek={plan.greenHoursByWeek} onSelect={setWeekIndex} />
+          </div>
+        )}
       </div>
 
-      {!ready ? (
+      {mode === "record" ? (
+        <RecordView isDesktop={isDesktop} />
+      ) : !ready ? (
         <div className="mt-4 h-96 rounded-xl bg-muted" role="status" aria-label="Loading your plan" />
       ) : (
         <>

@@ -193,27 +193,24 @@ export type Baseline = Record<CourseCode, [number, number]>;
 export const BASELINE_AS_OF = "2026-11-10";
 
 /**
- * Attendance exactly as the Linways portal shows it on BASELINE_AS_OF.
- * OD hours the portal has not approved yet are still absent in here; the ODS
- * list below is what turns them into present hours.
- *
- * Swap week, 7 to 11 Sep 2026: Wed 9 Sep ran Friday's timetable and Fri 11 Sep
- * ran Wednesday's, but the hours had been placed by the normal weekday
- * timetable. Corrected, that nets Linear Algebra -1 present / -1 held, and
- * Data Structures and Web Tech +1 / +1 each (baseline revision 2). Total held
- * across all courses: 313.
+ * Attendance up to BASELINE_AS_OF, worked out class by class from the past
+ * record (history.ts: the portal's daily report, each hour placed on the
+ * course that ran it, with the timetable change on 17 Sep). DL counts as
+ * present; suspended hours count as held but not attended. ODs still pending
+ * are absences in here; the ODS list below turns them into present hours.
+ * history.test.ts checks these numbers against the record. Revision 4.
  */
 export const PORTAL_BASELINE: Baseline = {
-  CSE2251: [29, 34],
-  CSE2252: [19, 22],
-  APT4002: [14, 20],
-  CSE2259: [16, 22],
-  CSE2257: [30, 36],
-  CSE2253: [26, 34], // revision 1: [25, 33]
-  MAT2303: [25, 37], // revision 1: [26, 38]
-  CSE2255: [24, 29],
-  CSE2258: [28, 35], // revision 1: [27, 34]
-  CSE2256: [19, 24],
+  CSE2251: [34, 37],
+  CSE2252: [20, 22],
+  APT4002: [18, 20],
+  CSE2259: [24, 26],
+  CSE2257: [30, 33],
+  CSE2253: [30, 37],
+  MAT2303: [35, 45],
+  CSE2255: [24, 31],
+  CSE2258: [32, 37],
+  CSE2256: [23, 26],
   CSE2254: [20, 20],
 };
 
@@ -226,8 +223,10 @@ export const PORTAL_BASELINE: Baseline = {
  *
  *   2: swap-week baseline correction
  *   3: Sat 21 Nov added as a working day on Monday's timetable
+ *   4: baseline rebuilt from the class-by-class record
+ *   5: 11-19 Nov marks imported from the record (where not marked by hand)
  */
-export const BASELINE_REVISION = 3;
+export const BASELINE_REVISION = 5;
 
 /**
  * Per revision: courses whose default changed, as [old default, new default].
@@ -248,6 +247,19 @@ export const BASELINE_CORRECTIONS: Record<number, Partial<Record<CourseCode, [[n
       [26, 38],
       [25, 37],
     ],
+  },
+  // Every course moves from the old portal-placed numbers to the record's.
+  4: {
+    CSE2251: [[29, 34], [34, 37]],
+    CSE2252: [[19, 22], [20, 22]],
+    APT4002: [[14, 20], [18, 20]],
+    CSE2259: [[16, 22], [24, 26]],
+    CSE2257: [[30, 36], [30, 33]],
+    CSE2253: [[26, 34], [30, 37]],
+    MAT2303: [[25, 37], [35, 45]],
+    CSE2255: [[24, 29], [24, 31]],
+    CSE2258: [[28, 35], [32, 37]],
+    CSE2256: [[19, 24], [23, 26]],
   },
 };
 
@@ -281,66 +293,18 @@ export interface OdLeave {
   dates?: string[];
 }
 
+/**
+ * ODs not yet shown as DL. Every other OD (12 Aug, 4 Sep, 15/16/17/24 Sep,
+ * 27/29/30 Oct) is a DL in the record now, so it is already present in the
+ * baseline and was removed from this list.
+ */
 export const ODS: OdLeave[] = [
   {
-    id: "od-2026-08-12",
-    date: "2026-08-12",
-    reason: "eMudhra visit (full-day OD)",
-    hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 },
-  },
-  {
-    id: "od-2026-09-04",
-    date: "2026-09-04",
-    reason: "SIH orientation",
-    hours: { APT4002: 2, CSE2257: 1 },
-  },
-  {
-    id: "od-2026-09-15",
-    date: "2026-09-15",
-    reason: "Engineer's Day",
-    hours: { CSE2257: 1 },
-  },
-  {
-    id: "od-2026-09-16",
-    date: "2026-09-16",
-    reason: "SIH hackathon",
-    hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 },
-  },
-  {
-    id: "od-2026-09-17",
-    date: "2026-09-17",
-    reason: "SIH hackathon",
-    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 },
-  },
-  {
-    id: "od-2026-09-24",
-    date: "2026-09-24",
-    reason: "Anveshana Pitchathon",
-    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 1 },
-  },
-  {
+    // Both hours of the DCCN lab on 29 Sep are still absent in the record.
     id: "od-2026-09-29",
     date: "2026-09-29",
     reason: "French event, Seminar Hall",
     hours: { CSE2252: 1 },
-  },
-  {
-    id: "od-2026-10-27",
-    date: "2026-10-27",
-    reason: "Chip to Crop",
-    hours: { CSE2252: 1 },
-  },
-  {
-    id: "od-2026-10-29",
-    date: "2026-10-29",
-    reason: "Alliance hackathon",
-    hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 },
-  },
-  {
-    id: "od-2026-10-30",
-    date: "2026-10-30",
-    reason: "Alliance hackathon",
-    hours: { CSE2257: 1, CSE2251: 1, CSE2259: 2, CSE2253: 1, CSE2258: 1, MAT2303: 1 },
   },
   {
     // Inside the plan: covers every class on both days (12 hours by the timetable).

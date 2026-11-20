@@ -6,6 +6,7 @@ import {
   PORTAL_BASELINE,
   defaultSettings,
   odStateAll,
+  type Baseline,
   type CourseCode,
   type OdState,
   type Settings,
@@ -32,13 +33,53 @@ type Scenario = "odsGranted" | "odsPending";
 const PLAN_OD = "od-2026-11-17";
 
 /**
- * Every baseline OD on (or off), with the plan-day OD off. The fixtures in
- * this file describe the engine on the 10 Nov baseline before that OD existed.
+ * Most fixtures in this file were written on the portal's own numbers and the
+ * ten ODs that were still pending then. The baseline has since been rebuilt
+ * from the class-by-class record (see history.ts) and those ODs are DLs in it,
+ * but the fixtures still pin down the rules, so they run on a frozen copy of
+ * that data: LEGACY_PORTAL plus whichever LEGACY_ODS a test switches on.
  */
+const LEGACY_PORTAL: Baseline = {
+  CSE2251: [29, 34],
+  CSE2252: [19, 22],
+  APT4002: [14, 20],
+  CSE2259: [16, 22],
+  CSE2257: [30, 36],
+  CSE2253: [26, 34],
+  MAT2303: [25, 37],
+  CSE2255: [24, 29],
+  CSE2258: [28, 35],
+  CSE2256: [19, 24],
+  CSE2254: [20, 20],
+};
+
+const LEGACY_ODS: { id: string; hours: Partial<Record<CourseCode, number>> }[] = [
+  { id: "od-2026-08-12", hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 } },
+  { id: "od-2026-09-04", hours: { APT4002: 2, CSE2257: 1 } },
+  { id: "od-2026-09-15", hours: { CSE2257: 1 } },
+  { id: "od-2026-09-16", hours: { APT4002: 2, CSE2257: 1, CSE2255: 1, MAT2303: 1 } },
+  { id: "od-2026-09-17", hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 } },
+  { id: "od-2026-09-24", hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 1 } },
+  { id: "od-2026-09-29", hours: { CSE2252: 1 } },
+  { id: "od-2026-10-27", hours: { CSE2252: 1 } },
+  { id: "od-2026-10-29", hours: { MAT2303: 1, CSE2253: 1, CSE2251: 1, CSE2258: 1, CSE2256: 2 } },
+  { id: "od-2026-10-30", hours: { CSE2257: 1, CSE2251: 1, CSE2259: 2, CSE2253: 1, CSE2258: 1, MAT2303: 1 } },
+];
+
+/** Every legacy OD on (or off). */
 function baselineOds(on: boolean): OdState {
-  const state = odStateAll(on);
-  state[PLAN_OD] = { on: false, inPortal: false };
-  return state;
+  return Object.fromEntries(LEGACY_ODS.map((od) => [od.id, { on, inPortal: false }]));
+}
+
+/** LEGACY_PORTAL plus the hours of the legacy ODs switched on (and not in the portal). */
+function legacyBaseline(selection: OdState): Baseline {
+  const out = structuredClone(LEGACY_PORTAL);
+  for (const od of LEGACY_ODS) {
+    const t = selection[od.id];
+    if (!t || !t.on || t.inPortal) continue;
+    for (const [code, h] of Object.entries(od.hours)) out[code as CourseCode][0] += h ?? 0;
+  }
+  return out;
 }
 
 /** All ODs on, except the listed ids. */
@@ -73,12 +114,29 @@ const NEW_WINDOW: Partial<Settings> = {
   extraWorkingDays: [SAT_5_DEC],
 };
 
+/**
+ * `ods` picks legacy ODs (folded into the baseline); `realOds` is the app's
+ * current OD switches, all off unless a test turns them on.
+ */
 function plan(
-  opts: { scenario?: Scenario; ods?: OdState; today?: string; marks?: Marks; extra?: Partial<Settings> } = {},
+  opts: {
+    scenario?: Scenario;
+    ods?: OdState;
+    realOds?: OdState;
+    today?: string;
+    marks?: Marks;
+    extra?: Partial<Settings>;
+  } = {},
 ): Plan {
-  const odState = opts.ods ?? baselineOds(opts.scenario !== "odsPending");
+  const selection = opts.ods ?? baselineOds(opts.scenario !== "odsPending");
   return computePlan({
-    settings: { ...defaultSettings(), ...OLD_WINDOW, odState, ...opts.extra },
+    settings: {
+      ...defaultSettings(),
+      ...OLD_WINDOW,
+      baseline: legacyBaseline(selection),
+      odState: opts.realOds ?? odStateAll(false),
+      ...opts.extra,
+    },
     marks: opts.marks ?? {},
     today: opts.today ?? "2026-11-11",
   });
@@ -374,30 +432,24 @@ describe("settings", () => {
 });
 
 describe("on-duty leaves", () => {
-  it("has 10 baseline ODs totalling 40 hours, plus the 17-18 Nov plan OD", () => {
-    expect(ODS).toHaveLength(11);
-    expect(ODS.filter((od) => !od.dates)).toHaveLength(10);
-    expect(OD_TOTAL_HOURS).toBe(40);
-    expect(new Set(ODS.map((od) => od.id)).size).toBe(11);
+  it("only the ODs not yet DL in the record are left: 29 Sep and the 17-18 Nov hackathon", () => {
+    expect(ODS.map((od) => od.id)).toEqual(["od-2026-09-29", "od-2026-11-17"]);
+    expect(OD_TOTAL_HOURS).toBe(1);
     expect(ODS.map((od) => od.date)).toEqual([...ODS.map((od) => od.date)].sort());
   });
 
-  it("portal baseline plus every OD gives the old granted numbers", () => {
-    const eff = effectiveBaseline({ baseline: PORTAL_BASELINE, odState: baselineOds(true) });
-    // CSE2257 is 35, one above the old granted 34: the 4 Sep OD now covers its hour too.
-    // CSE2253 30, MAT2303 31, CSE2258 32: the swap-week correction (baseline revision 2).
+  it("legacy data: portal plus every old OD gave the old granted numbers", () => {
+    const eff = legacyBaseline(baselineOds(true));
     expect(COURSE_CODES.map((c) => eff[c][0])).toEqual([33, 21, 20, 18, 35, 30, 31, 26, 32, 24, 20]);
-    // Held never changes.
-    expect(COURSE_CODES.map((c) => eff[c][1])).toEqual(COURSE_CODES.map((c) => PORTAL_BASELINE[c][1]));
-    // And with none it is the portal as is.
-    expect(effectiveBaseline({ baseline: PORTAL_BASELINE, odState: baselineOds(false) })).toEqual(PORTAL_BASELINE);
+    expect(legacyBaseline(baselineOds(false))).toEqual(LEGACY_PORTAL);
   });
 
-  it("defaults count every OD", () => {
+  it("the default baseline is the record's, and only the 29 Sep OD adds to it", () => {
     const hours = countedOdHours(defaultSettings());
-    expect(COURSE_CODES.map((c) => hours[c])).toEqual([4, 2, 6, 2, 5, 4, 6, 2, 4, 5, 0]);
-    expect(plan().byCourse.MAT2303.odHours).toBe(6);
-    expect(plan({ scenario: "odsPending" }).byCourse.MAT2303.odHours).toBe(0);
+    expect(COURSE_CODES.map((c) => hours[c])).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const eff = effectiveBaseline(defaultSettings());
+    expect(eff.CSE2252).toEqual([PORTAL_BASELINE.CSE2252[0] + 1, PORTAL_BASELINE.CSE2252[1]]);
+    expect(eff.MAT2303).toEqual(PORTAL_BASELINE.MAT2303);
   });
 
   it("all ODs on", () => {
@@ -436,16 +488,20 @@ describe("on-duty leaves", () => {
       const inPortal = plan({ ods });
       expect(budgetList(inPortal)).toEqual(budgetList(off));
       expect(greenCounts(inPortal)).toEqual(greenCounts(off));
-      expect(inPortal.byCourse.CSE2259.odHours).toBe(0);
     }
+    // The same rule on a real OD: 29 Sep with "already DL" adds nothing.
+    const real = (t: { on: boolean; inPortal: boolean }) =>
+      plan({ realOds: { ...odStateAll(false), "od-2026-09-29": t } }).byCourse.CSE2252;
+    expect(real({ on: true, inPortal: true }).present).toBe(real({ on: false, inPortal: false }).present);
+    expect(real({ on: true, inPortal: false }).present).toBe(real({ on: false, inPortal: false }).present + 1);
   });
 
   it("greens are always the last g remaining sessions, whatever the toggles", () => {
     const combos: OdState[] = [
       baselineOds(true),
       baselineOds(false),
-      ...ODS.map((od) => allExcept(od.id)),
-      ...ODS.map((od) => only(od.id)),
+      ...LEGACY_ODS.map((od) => allExcept(od.id)),
+      ...LEGACY_ODS.map((od) => only(od.id)),
       only("od-2026-08-12", "od-2026-09-15", "od-2026-09-16", "od-2026-09-17", "od-2026-09-24"),
     ];
     for (const ods of combos) {
@@ -639,11 +695,8 @@ describe("plan window to 5 Dec: term ends 1 Dec, Sat 5 Dec on Monday's timetable
 
 describe("STEM for Impact Hackathon OD, 17-18 Nov", () => {
   const od = ODS.find((x) => x.id === PLAN_OD)!;
-  const run = (on: boolean, today: string, marks: Marks = {}) => {
-    const ods = baselineOds(true);
-    ods[PLAN_OD] = { on, inPortal: false };
-    return plan({ ods, today, marks, extra: NEW_WINDOW });
-  };
+  const run = (on: boolean, today: string, marks: Marks = {}) =>
+    plan({ realOds: { ...odStateAll(false), [PLAN_OD]: { on, inPortal: false } }, today, marks, extra: NEW_WINDOW });
 
   it("covers every class on both days: 12 hours by the timetable", () => {
     expect(od.dates).toEqual(["2026-11-17", "2026-11-18"]);

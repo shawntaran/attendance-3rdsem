@@ -15,6 +15,11 @@ import { SyncEngine, newRecord, syncState, type CacheRecord, type LocalCache } f
 
 // ---- fakes -----------------------------------------------------------------
 
+/** The default settings with no marks: these tests are about sync, not the past record. */
+function blank(): AppState {
+  return { ...defaultState(), marks: {} };
+}
+
 function mark(base: AppState, id: string, m: "attended" | "skipped" = "skipped"): AppState {
   const s = structuredClone(base);
   s.marks[id] = m;
@@ -104,6 +109,7 @@ function device(server: ReturnType<typeof fakeServer>, opts: { cache?: ReturnTyp
     setTimer: () => 0,
     clearTimer: () => {},
     now: () => "2026-11-11T10:00:00.000Z",
+    initialState: blank,
   });
   return { engine, cache, storage };
 }
@@ -114,7 +120,7 @@ const remoteAt = (state: AppState, version: number): RemoteRecord => ({ state, v
 // ---- syncState (pure reconciliation) -----------------------------------------
 
 describe("syncState", () => {
-  const base = defaultState();
+  const base = blank();
   const a = mark(base, "2026-11-12@1");
   const b = mark(base, "2026-11-13@1");
 
@@ -139,14 +145,14 @@ describe("syncState", () => {
   });
 
   it("a fresh device with no data adopts the cloud", () => {
-    const d = syncState(newRecord(defaultState(), "default"), remoteAt(b, 2), NOW);
+    const d = syncState(newRecord(blank(), "default"), remoteAt(b, 2), NOW);
     expect(d.record.state).toEqual(b);
     expect(d.record.conflict).toBeNull();
   });
 
   it("a fresh device that edited offline merges its edits onto the cloud", () => {
     const rec = { ...newRecord(a, "default"), pending: true };
-    const d = syncState(rec, remoteAt(b, 2), NOW);
+    const d = syncState(rec, remoteAt(b, 2), NOW, blank);
     expect(d.record.state.marks).toEqual({ ...a.marks, ...b.marks });
     expect(d.push).toBe(true);
   });
@@ -184,7 +190,7 @@ describe("syncState", () => {
 describe("initial cloud migration", () => {
   it("uploads the localStorage v3 state, verifies it, then clears the legacy key", async () => {
     const server = fakeServer();
-    const legacy = mark(defaultState(), "2026-11-12@1", "attended");
+    const legacy = mark(blank(), "2026-11-12@1", "attended");
     legacy.settings.odState = odStateAll(false);
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(legacy) });
     const { engine, cache } = device(server, { storage });
@@ -200,7 +206,7 @@ describe("initial cloud migration", () => {
 
   it("migrates a v2 state through the existing migration on the way up", async () => {
     const server = fakeServer();
-    const { windowEnd: _w, extraWorkingDays: _x, ...v2settings } = mark(defaultState(), "2026-11-12@1").settings;
+    const { windowEnd: _w, extraWorkingDays: _x, ...v2settings } = mark(blank(), "2026-11-12@1").settings;
     const storage = memoryStorage({
       [STORAGE_KEY_V2]: JSON.stringify({ settings: { ...v2settings, cushionHours: 2 }, marks: { "2026-11-12@1": "skipped" } }),
     });
@@ -214,7 +220,7 @@ describe("initial cloud migration", () => {
   it("keeps the legacy key while the upload fails, and clears it once it succeeds", async () => {
     const server = fakeServer();
     server.repo.fail = true;
-    const legacy = mark(defaultState(), "2026-11-12@1");
+    const legacy = mark(blank(), "2026-11-12@1");
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(legacy) });
     const { engine } = device(server, { storage });
 
@@ -231,9 +237,9 @@ describe("initial cloud migration", () => {
 
   it("if the cloud already has a different state, overwrites neither and offers recovery", async () => {
     const server = fakeServer();
-    const cloud = mark(defaultState(), "2026-11-16@1");
+    const cloud = mark(blank(), "2026-11-16@1");
     await handlePut(server.repo, { state: cloud, expectedVersion: 0 });
-    const legacy = mark(defaultState(), "2026-11-12@1");
+    const legacy = mark(blank(), "2026-11-12@1");
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(legacy) });
     const { engine, cache } = device(server, { storage });
 
@@ -255,9 +261,9 @@ describe("initial cloud migration", () => {
 
   it("choosing the cloud copy keeps the cloud and clears the legacy key", async () => {
     const server = fakeServer();
-    const cloud = mark(defaultState(), "2026-11-16@1");
+    const cloud = mark(blank(), "2026-11-16@1");
     await handlePut(server.repo, { state: cloud, expectedVersion: 0 });
-    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(mark(defaultState(), "2026-11-12@1")) });
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(mark(blank(), "2026-11-12@1")) });
     const { engine } = device(server, { storage });
     await engine.start();
     await engine.resolveConflict("cloud");
@@ -270,7 +276,7 @@ describe("initial cloud migration", () => {
     const server = fakeServer();
     const { engine } = device(server);
     await engine.start();
-    expect(server.serverState()).toEqual(defaultState());
+    expect(server.serverState()).toEqual(blank());
   });
 });
 
@@ -385,14 +391,14 @@ describe("cross-device sync", () => {
     const { server, a, b } = await twoDevices();
     a.update(mark(a.getSnapshot().state, "2026-11-12@1"));
     const bs = mark(b.getSnapshot().state, "2026-11-13@1", "attended");
-    bs.settings.odState["od-2026-10-30"] = { on: false, inPortal: false };
+    bs.settings.odState["od-2026-09-29"] = { on: false, inPortal: false };
     b.update(bs);
     await a.flush();
     await b.flush(); // stale version -> 409 -> merge -> retry
     await a.syncNow();
     const expected = { "2026-11-12@1": "skipped", "2026-11-13@1": "attended" };
     expect(server.serverState()?.marks).toEqual(expected);
-    expect(server.serverState()?.settings.odState["od-2026-10-30"].on).toBe(false);
+    expect(server.serverState()?.settings.odState["od-2026-09-29"].on).toBe(false);
     expect(a.getSnapshot().state).toEqual(b.getSnapshot().state);
     expect(a.getSnapshot().conflict).toBeNull();
     expect(b.getSnapshot().conflict).toBeNull();
@@ -457,6 +463,7 @@ describe("access key", () => {
       legacy: { read: () => null, clear: () => {} },
       setTimer: (_fn, ms) => timers.push(ms),
       clearTimer: () => {},
+      initialState: blank,
     });
     await engine.start();
     engine.update(mark(engine.getSnapshot().state, "2026-11-12@1"));
@@ -477,12 +484,13 @@ describe("access key", () => {
 
 describe("swap-week baseline correction", () => {
   function old(): AppState {
-    const s = defaultState();
+    const s = blank();
     delete s.settings.baselineRevision;
     s.settings.baseline = { ...s.settings.baseline, CSE2253: [25, 33], CSE2258: [27, 34], MAT2303: [26, 38] };
     return s;
   }
-  const NEW = { CSE2253: [26, 34], CSE2258: [28, 35], MAT2303: [25, 37] };
+  // The swap-week courses after every revision step: the record's numbers.
+  const NEW = { CSE2253: [30, 37], CSE2258: [32, 37], MAT2303: [35, 45] };
 
   it("a server holding an old-revision row is upgraded once; a second old device merges without conflict", async () => {
     const server = fakeServer();
@@ -496,7 +504,7 @@ describe("swap-week baseline correction", () => {
     expect(a.engine.getSnapshot().state.settings.baseline).toMatchObject(NEW);
     expect(server.saves).toBe(1); // pushed exactly once
     expect(server.repo.record?.version).toBe(2);
-    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 3 });
+    expect(server.serverState()?.settings).toMatchObject({ baseline: NEW, baselineRevision: 5 });
 
     await b.engine.start();
     expect(b.engine.getSnapshot().conflict).toBeNull();

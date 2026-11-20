@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { applyLocalValues, flatten, mergeStates, statesEqual, unflatten } from "./merge";
 import { defaultState, type AppState } from "./storage";
 
+/** Default settings with no marks. */
+function blank(): AppState {
+  return { ...defaultState(), marks: {} };
+}
+
 function edit(base: AppState, fn: (s: AppState) => void): AppState {
   const s = structuredClone(base);
   fn(s);
@@ -10,10 +15,10 @@ function edit(base: AppState, fn: (s: AppState) => void): AppState {
 
 describe("flatten / unflatten", () => {
   it("round-trips every part of the state", () => {
-    const s = edit(defaultState(), (x) => {
+    const s = edit(blank(), (x) => {
       x.marks["2026-11-12@1"] = "skipped";
       x.settings.holidays = ["2026-11-20"];
-      x.settings.odState["od-2026-10-30"] = { on: false, inPortal: true };
+      x.settings.odState["od-2026-11-17"] = { on: false, inPortal: true };
       x.settings.baseline.MAT2303 = [27, 39];
       // Validation keeps extra working days sorted by date, so add it in order.
       x.settings.extraWorkingDays.splice(1, 0, { date: "2026-11-28", followsWeekday: 3, reason: "x" });
@@ -21,18 +26,18 @@ describe("flatten / unflatten", () => {
     });
     expect(unflatten(flatten(s))).toEqual(s);
     expect(statesEqual(s, structuredClone(s))).toBe(true);
-    expect(statesEqual(s, defaultState())).toBe(false);
+    expect(statesEqual(s, blank())).toBe(false);
   });
 
   it("refuses to build an invalid state", () => {
-    const flat = flatten(defaultState());
+    const flat = flatten(blank());
     flat.set("settings.targetPct", "500");
     expect(() => unflatten(flat)).toThrow();
   });
 });
 
 describe("mergeStates", () => {
-  const base = edit(defaultState(), (s) => {
+  const base = edit(blank(), (s) => {
     s.marks["2026-11-12@1"] = "attended";
   });
 
@@ -51,20 +56,20 @@ describe("mergeStates", () => {
   it("merges different settings keys, OD toggles and holidays", () => {
     const local = edit(base, (s) => {
       s.settings.cushionHours = 2;
-      s.settings.odState["od-2026-09-04"] = { on: false, inPortal: false };
+      s.settings.odState["od-2026-09-29"] = { on: false, inPortal: false };
       s.settings.holidays = ["2026-11-20"];
     });
     const remote = edit(base, (s) => {
       s.settings.theme = "dark";
-      s.settings.odState["od-2026-10-30"] = { on: true, inPortal: true };
+      s.settings.odState["od-2026-11-17"] = { on: true, inPortal: true };
       s.settings.holidays = ["2026-11-27"];
     });
     const { merged, conflicts } = mergeStates(base, local, remote);
     expect(conflicts).toEqual([]);
     expect(merged.settings.cushionHours).toBe(2);
     expect(merged.settings.theme).toBe("dark");
-    expect(merged.settings.odState["od-2026-09-04"].on).toBe(false);
-    expect(merged.settings.odState["od-2026-10-30"].inPortal).toBe(true);
+    expect(merged.settings.odState["od-2026-09-29"].on).toBe(false);
+    expect(merged.settings.odState["od-2026-11-17"].inPortal).toBe(true);
     expect(merged.settings.holidays).toEqual(["2026-11-20", "2026-11-27"]);
   });
 

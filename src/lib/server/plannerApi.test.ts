@@ -3,7 +3,7 @@ import { defaultState } from "../storage";
 import { handleGet, handlePut, memoryRepo } from "./plannerApi";
 
 function withMark(id: string, mark: "attended" | "skipped" = "skipped") {
-  const s = defaultState();
+  const s = { ...defaultState(), marks: {} as Record<string, "attended" | "skipped"> };
   s.marks[id] = mark;
   return s;
 }
